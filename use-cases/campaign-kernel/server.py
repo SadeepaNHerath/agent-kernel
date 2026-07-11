@@ -39,6 +39,30 @@ def _arg(args: list[str], index: int, default: str = "") -> str:
     return args[index] if index < len(args) else default
 
 
+def _extract_labeled_value(raw: str, label: str) -> str:
+    marker = f"{label}="
+    if marker not in raw:
+        return ""
+    value = raw.split(marker, 1)[1]
+    for next_label in ["theme=", "colors=", "logo=", "asset=", "flyer=", "sample_caption=", "caption="]:
+        if next_label != marker and next_label in value:
+            value = value.split(next_label, 1)[0]
+    return value.strip(" ;")
+
+
+def _context_kwargs(notes: str) -> dict[str, str]:
+    return {
+        "theme_notes": _extract_labeled_value(notes, "theme") or notes,
+        "colors": _extract_labeled_value(notes, "colors"),
+        "logo_notes": _extract_labeled_value(notes, "logo"),
+        "asset_ref": _extract_labeled_value(notes, "asset"),
+        "sample_flyer_notes": _extract_labeled_value(notes, "flyer"),
+        "sample_caption": _extract_labeled_value(notes, "sample_caption"),
+        "caption_structure": _extract_labeled_value(notes, "caption"),
+        "default_hashtags": notes,
+    }
+
+
 class CampaignTelegramHandler(AgentTelegramRequestHandler):
     async def _handle_command(self, chat_id: int, command: str):
         cmd, args = _parts(command)
@@ -51,7 +75,8 @@ class CampaignTelegramHandler(AgentTelegramRequestHandler):
                         [
                             "CampaignKernel commands:",
                             "/new_event <name>",
-                            "/context <event_id> <style notes>",
+                            "/context <event_id> theme=... colors=... caption=... sample_caption=...",
+                            "/upload_assets <event_id> logo=... asset=... flyer=...",
                             "/brief <event_id> <campaign brief>",
                             "/approve_content <event_id> <campaign_id>",
                             "/generate_flyer <event_id> <campaign_id>",
@@ -72,10 +97,10 @@ class CampaignTelegramHandler(AgentTelegramRequestHandler):
                 await self._send_message(chat_id, create_event_context(" ".join(args)))
                 return
 
-            if cmd == "/context":
+            if cmd in {"/context", "/upload_assets"}:
                 event_id = _arg(args, 0)
                 notes = " ".join(args[1:])
-                await self._send_message(chat_id, update_event_context(event_id=event_id, theme_notes=notes))
+                await self._send_message(chat_id, update_event_context(event_id=event_id, **_context_kwargs(notes)))
                 return
 
             if cmd == "/style_summary":

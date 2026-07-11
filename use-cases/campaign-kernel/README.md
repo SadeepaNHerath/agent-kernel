@@ -140,6 +140,8 @@ Run tests:
 uv run pytest
 ```
 
+For the full non-code checklist before the demo/submission, see `MANUAL_SETUP.md`.
+
 ## Competition Notes
 
 - The code is inside the Agent Kernel repository under `use-cases/campaign-kernel`.

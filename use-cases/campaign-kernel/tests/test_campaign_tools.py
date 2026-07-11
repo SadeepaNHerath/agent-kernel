@@ -32,13 +32,14 @@ def test_full_campaign_workflow(monkeypatch, tmp_path):
     update = load_json(
         update_event_context(
             event_id,
-            theme_notes="Modern student tech theme",
+            theme_notes="Modern student tech theme #StudentBuilders",
             sample_caption="Ready to build with AI? Register now. #IDEALIZE #AIWorkshop",
             caption_structure="Hook, details, CTA, hashtags",
         )
     )
     assert update["ok"] is True
     assert "#IDEALIZE" in update["style"]["default_hashtags"]
+    assert "#StudentBuilders" in update["style"]["default_hashtags"]
 
     draft = load_json(
         draft_flyer_content(

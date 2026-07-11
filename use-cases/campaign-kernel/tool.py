@@ -245,6 +245,9 @@ def update_event_context(
     if theme_notes:
         existing = style.get("theme_notes", "")
         style["theme_notes"] = f"{existing}\n{theme_notes.strip()}".strip()
+        style["default_hashtags"] = list(
+            dict.fromkeys(style.get("default_hashtags", []) + _extract_hashtags(theme_notes))
+        )
     if colors:
         style["colors"] = list(dict.fromkeys(style.get("colors", []) + _split_csv(colors)))
     if logo_notes:

@@ -1,6 +1,6 @@
 # Building Agents With Agent Kernel Skills
 
-This guide shows how to use the Agent Kernel skills pack with a coding agent to create a new agent project. The sample agent directory is `waste-sorting-assistant`, but the same workflow can be reused with any folder name.
+This guide shows how to use the Agent Kernel skills pack with a coding agent to create a new agent project. The sample agent directories include `waste-sorting-assistant` and `campaign-kernel`, but the same workflow can be reused with any folder name.
 
 Python version must be `3.12` - `3.13.x`.
 
