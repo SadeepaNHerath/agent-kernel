@@ -1,0 +1,8 @@
+.campaign_kernel_state/
+output/
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+.env
+token.pickle

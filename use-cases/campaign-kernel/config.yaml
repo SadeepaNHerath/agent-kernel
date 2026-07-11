@@ -1,0 +1,16 @@
+# CampaignKernel local configuration.
+telegram:
+  agent: "campaign_director"
+  api_version: "bot"
+
+api:
+  max_file_size: 20971520
+
+session:
+  type: in_memory
+  cache:
+    size: 512
+
+logging:
+  ak:
+    level: INFO
