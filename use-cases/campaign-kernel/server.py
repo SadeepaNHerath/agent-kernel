@@ -211,6 +211,24 @@ class CampaignTelegramHandler(AgentTelegramRequestHandler):
         except Exception as error:
             self._log.warning("Could not register Telegram commands: %s", error)
 
+    async def _process_webhook_body(self, body: dict):
+        try:
+            self._log.debug("Received CampaignKernel Telegram update: %s", body)
+            if "message" in body:
+                await self._handle_message(body["message"])
+            elif "edited_message" in body:
+                await self._handle_message(body["edited_message"])
+            elif "channel_post" in body:
+                await self._handle_message(body["channel_post"])
+            elif "edited_channel_post" in body:
+                await self._handle_message(body["edited_channel_post"])
+            elif "callback_query" in body:
+                await self._handle_callback_query(body["callback_query"])
+            else:
+                self._log.debug("Unhandled CampaignKernel update type: %s", list(body.keys()))
+        except Exception as error:
+            self._log.error("Error processing CampaignKernel Telegram update: %s", error, exc_info=True)
+
     async def _send_photo(
         self, chat_id: int, photo_path: str, caption: str, reply_markup: dict[str, Any] | None = None
     ):

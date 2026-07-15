@@ -91,3 +91,27 @@ def test_flyer_caption_mentions_template_fallback():
     )
 
     assert "AI fallback" in caption
+
+
+def test_channel_post_routes_to_message_handler():
+    handler = object.__new__(CampaignTelegramHandler)
+    seen = {}
+
+    class FakeLog:
+        def debug(self, *args, **kwargs):
+            pass
+
+        def error(self, *args, **kwargs):
+            pass
+
+    async def fake_handle_message(message):
+        seen["message"] = message
+
+    handler._log = FakeLog()
+    handler._handle_message = fake_handle_message
+
+    asyncio.run(
+        handler._process_webhook_body({"channel_post": {"message_id": 7, "chat": {"id": -100123}, "text": "/start"}})
+    )
+
+    assert seen["message"]["text"] == "/start"
