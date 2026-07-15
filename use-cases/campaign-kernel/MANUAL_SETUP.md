@@ -21,7 +21,14 @@ Use this checklist before recording the demo or submitting the mini-competition 
 - Run `uv run python server.py`.
 - Expose local port 8000 with ngrok, pinggy, or another HTTPS tunnel.
 - Set Telegram webhook to `https://<public-url>/telegram/webhook`.
-- Create one Telegram chat/channel per event campaign.
+- Type `/` in Telegram and confirm `start`, `new_event`, `context`, `brief`, `status`, and `help` are visible.
+- Create one Telegram chat/channel per event campaign if the team wants separate event workspaces.
+
+The server registers slash commands on startup. If the commands do not appear, run:
+
+```bash
+uv run python register_commands.py
+```
 
 ## Required Local Environment
 
@@ -36,6 +43,15 @@ export CAMPAIGN_KERNEL_MOCK_PUBLISH=true
 ```
 
 For Azure OpenAI, `OPENAI_MODEL` should match the model/deployment name configured on the Azure OpenAI resource.
+
+Flyer rendering defaults to the reliable template renderer. Optional AI image mode can be enabled, but it falls back to template mode when image credentials or model support are missing:
+
+```bash
+export CAMPAIGN_KERNEL_IMAGE_MODE=template
+# or
+export CAMPAIGN_KERNEL_IMAGE_MODE=ai
+export CAMPAIGN_KERNEL_IMAGE_MODEL="gpt-image-1"
+```
 
 ## Optional Live Publishing
 
@@ -69,21 +85,44 @@ WhatsApp:
 
 ```text
 /new_event IDEALIZE AI Workshop
-/context CK-idealize-ai-workshop theme=modern tech, confident student tone colors=blue, white caption=Hook, details, CTA, hashtags sample_caption=Ready to build with AI? Register now. #IDEALIZE #AIWorkshop
-/brief CK-idealize-ai-workshop Free AI workshop for university students on July 25 at University of Moratuwa. Register via link in bio.
-/approve_content CK-idealize-ai-workshop CK-0001
-/generate_flyer CK-idealize-ai-workshop CK-0001 premium but student-friendly
-/approve_flyer CK-idealize-ai-workshop CK-0001
-/caption CK-idealize-ai-workshop CK-0001
-/approve_caption CK-idealize-ai-workshop CK-0001
-/approve_campaign CK-idealize-ai-workshop CK-0001
-/publish CK-idealize-ai-workshop CK-0001 instagram facebook linkedin
+/context theme=modern tech, confident student tone colors=blue, white caption=Hook, details, CTA, hashtags sample_caption=Ready to build with AI? Register now. #IDEALIZE #AIWorkshop
 ```
+
+Upload a sample flyer image or PDF with this caption:
+
+```text
+sample for ck-idealize-ai-workshop
+```
+
+Then send the brief:
+
+```text
+/brief Free AI workshop for university students on July 25 at University of Moratuwa. Register via link in bio.
+```
+
+Click buttons in this order:
+
+- `Approve Content`
+- `Generate Flyer`
+- Check the flyer image sent in Telegram
+- `Approve Flyer`
+- `Generate Captions`
+- `Approve Caption`
+- `Approve Campaign`
+- `Publish IG/FB/LinkedIn`
 
 Designer/editor path:
 
 ```text
-/direct CK-idealize-ai-workshop flyer=output/final.png caption=Join our workshop. Register now. #IDEALIZE
-/approve_campaign CK-idealize-ai-workshop CK-0002
-/export CK-idealize-ai-workshop CK-0002 whatsapp
+/direct flyer=output/final.png caption=Join our workshop. Register now. #IDEALIZE
 ```
+
+Then approve the campaign and choose `WhatsApp Export` with buttons.
+
+## Debug Commands
+
+Normal users should not need these:
+
+- `/debug_status` returns raw campaign JSON for developers.
+- `/raw_event` returns raw event context JSON.
+- Power users can still pass explicit IDs to every command, for example `/brief ck-event-id ...`.

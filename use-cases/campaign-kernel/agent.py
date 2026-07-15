@@ -4,6 +4,7 @@ from agentkernel.openai import OpenAIToolBuilder
 from agents import Agent
 
 from tool import (
+    analyze_sample_flyer_context,
     approve_campaign_package,
     approve_caption_pack,
     approve_flyer,
@@ -24,6 +25,7 @@ from tool import (
 CAMPAIGN_TOOLS = [
     create_event_context,
     update_event_context,
+    analyze_sample_flyer_context,
     get_event_context,
     draft_flyer_content,
     edit_flyer_content,
@@ -50,7 +52,9 @@ event_context_agent = Agent(
         "sample captions, caption structure, colors, and hashtags with the provided tools. Summarize the stored "
         "style clearly and ask for confirmation when context is incomplete."
     ),
-    tools=OpenAIToolBuilder.bind([create_event_context, update_event_context, get_event_context]),
+    tools=OpenAIToolBuilder.bind(
+        [create_event_context, update_event_context, analyze_sample_flyer_context, get_event_context]
+    ),
 )
 
 flyer_content_agent = Agent(

@@ -10,7 +10,7 @@ This creates delays, inconsistent captions, missing event details, and repeated 
 
 ## Solution Overview
 
-CampaignKernel turns Telegram into a campaign production workspace.
+CampaignKernel turns Telegram into a campaign production workspace for non-programmers.
 
 Before an event, the user provides:
 
@@ -22,8 +22,10 @@ Before an event, the user provides:
 
 For each campaign, the user can choose either path:
 
-- **Full creation path:** short brief -> flyer content -> approval -> generated flyer -> edits -> caption pack -> approval -> final package.
+- **Full creation path:** short brief -> flyer content -> button approval -> generated flyer image in chat -> edits/regeneration -> caption pack -> approval -> final package.
 - **Designer/editor path:** upload or reference a ready flyer and/or ready caption -> validate -> package -> approve -> publish/export.
+
+The normal Telegram experience uses short replies and inline buttons. Raw JSON is hidden from the happy path and kept for `/debug_status` when developers need it.
 
 CampaignKernel uses Agent Kernel for:
 
@@ -84,6 +86,18 @@ export LINKEDIN_AUTHOR_URN="urn:li:organization:..."
 export LINKEDIN_ACCESS_TOKEN="..."
 ```
 
+Optional flyer image mode:
+
+```bash
+# Default and recommended for the competition demo
+export CAMPAIGN_KERNEL_IMAGE_MODE=template
+
+# Optional. If image credentials/model are missing or the API fails,
+# CampaignKernel falls back to the deterministic template renderer.
+export CAMPAIGN_KERNEL_IMAGE_MODE=ai
+export CAMPAIGN_KERNEL_IMAGE_MODEL="gpt-image-1"
+```
+
 ## How To Run The Solution
 
 Run the local Agent Kernel CLI:
@@ -96,6 +110,12 @@ Run the Telegram webhook server:
 
 ```bash
 uv run python server.py
+```
+
+The server registers the main slash commands with Telegram on startup. You can also refresh the slash menu manually:
+
+```bash
+uv run python register_commands.py
 ```
 
 Expose the local server:
@@ -115,27 +135,40 @@ curl -X POST "https://api.telegram.org/bot$AK_TELEGRAM__BOT_TOKEN/setWebhook" \
   }"
 ```
 
-Try this Telegram demo:
+Try this Telegram product demo:
 
 ```text
 /new_event IDEALIZE AI Workshop
-/context CK-idealize-ai-workshop theme=modern tech, blue and white, confident student tone; hashtags=#IDEALIZE #AIESEC #AIWorkshop; caption=Hook, details, CTA, hashtags
-/brief CK-idealize-ai-workshop Free AI workshop for university students on July 25 at University of Moratuwa. Register via link in bio.
-/approve_content CK-idealize-ai-workshop CK-0001
-/generate_flyer CK-idealize-ai-workshop CK-0001
-/approve_flyer CK-idealize-ai-workshop CK-0001
-/caption CK-idealize-ai-workshop CK-0001
-/approve_caption CK-idealize-ai-workshop CK-0001
-/approve_campaign CK-idealize-ai-workshop CK-0001
-/publish CK-idealize-ai-workshop CK-0001 instagram facebook linkedin
+/context theme=modern tech, confident student tone colors=blue, white caption=Hook, details, CTA, hashtags sample_caption=Ready to build with AI? Register now. #IDEALIZE #AIWorkshop
 ```
+
+Upload one or more sample flyer images/PDFs with this caption:
+
+```text
+sample for ck-idealize-ai-workshop
+```
+
+Then send:
+
+```text
+/brief Free AI workshop for university students on July 25 at University of Moratuwa. Register via link in bio.
+```
+
+From there, use the buttons:
+
+- `Approve Content`
+- `Generate Flyer`
+- Review the flyer image sent in chat, then `Approve Flyer` or `Regenerate`
+- `Generate Captions`
+- `Approve Caption`
+- `Approve Campaign`
+- `Publish IG/FB/LinkedIn` or `WhatsApp Export`
 
 Designer/editor shortcut:
 
 ```text
-/direct CK-idealize-ai-workshop flyer=output/final.png caption=Join our free AI workshop...
-/approve_campaign CK-idealize-ai-workshop CK-0002
-/export CK-idealize-ai-workshop CK-0002 whatsapp
+/direct flyer=output/final.png caption=Join our free AI workshop...
+Then approve the final package with buttons.
 ```
 
 Run tests:
@@ -151,4 +184,6 @@ For the full non-code checklist before the demo/submission, see `MANUAL_SETUP.md
 - The code is inside the Agent Kernel repository under `use-cases/campaign-kernel`.
 - The project uses Telegram as the supported user-facing integration.
 - The workflow demonstrates multiple agents, tools, memory/state, multimodal campaign context, and approval-driven publishing.
+- Uploaded sample flyers are saved and analyzed into reusable style context: layout, palette, hierarchy, CTA style, and caption pattern.
+- Generated flyers are delivered directly to Telegram with `sendPhoto`.
 - The default mock-publish path avoids live API credential risk during judging.

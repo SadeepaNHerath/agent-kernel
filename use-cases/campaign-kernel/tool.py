@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import io
 import json
 import os
 import re
@@ -20,6 +22,8 @@ SESSION_CAMPAIGN_KEY = "campaign_kernel.active_campaign"
 STATE_DIR_ENV = "CAMPAIGN_KERNEL_STATE_DIR"
 MOCK_PUBLISH_ENV = "CAMPAIGN_KERNEL_MOCK_PUBLISH"
 LIVE_PUBLISH_ENV = "CAMPAIGN_KERNEL_LIVE_PUBLISH"
+IMAGE_MODE_ENV = "CAMPAIGN_KERNEL_IMAGE_MODE"
+IMAGE_MODEL_ENV = "CAMPAIGN_KERNEL_IMAGE_MODEL"
 
 DEFAULT_STATE_DIR = ".campaign_kernel_state"
 STATE_FILE = "state.json"
@@ -186,6 +190,21 @@ def _normalize_targets(targets: str) -> list[str]:
     return [target for target in dict.fromkeys(target_list) if target in allowed]
 
 
+def _ensure_style_schema(style: dict[str, Any]) -> dict[str, Any]:
+    style.setdefault("theme_notes", "")
+    style.setdefault("tone", "clear, energetic, professional student-event tone")
+    style.setdefault("colors", [])
+    style.setdefault("logo_notes", [])
+    style.setdefault("asset_refs", [])
+    style.setdefault("sample_assets", [])
+    style.setdefault("sample_flyer_notes", [])
+    style.setdefault("sample_captions", [])
+    style.setdefault("style_analysis", [])
+    style.setdefault("caption_structure", "Hook, event details, CTA, hashtags")
+    style.setdefault("default_hashtags", [])
+    return style
+
+
 def create_event_context(
     event_name: str,
     theme_notes: str = "",
@@ -213,8 +232,10 @@ def create_event_context(
             "colors": _split_csv(colors),
             "logo_notes": [],
             "asset_refs": [],
+            "sample_assets": [],
             "sample_flyer_notes": [],
             "sample_captions": [],
+            "style_analysis": [],
             "caption_structure": "Hook, event details, CTA, hashtags",
             "default_hashtags": _extract_hashtags(default_hashtags),
         },
@@ -234,13 +255,15 @@ def update_event_context(
     asset_ref: str = "",
     sample_flyer_notes: str = "",
     sample_caption: str = "",
+    sample_asset_ref: str = "",
+    style_analysis: str = "",
     caption_structure: str = "",
     default_hashtags: str = "",
 ) -> str:
     """Update event style, caption, logo, asset, and design context."""
     state = _load_state()
     event = _get_event(state, event_id)
-    style = event.setdefault("style", {})
+    style = _ensure_style_schema(event.setdefault("style", {}))
 
     if theme_notes:
         existing = style.get("theme_notes", "")
@@ -254,6 +277,8 @@ def update_event_context(
         style.setdefault("logo_notes", []).append(logo_notes.strip())
     if asset_ref:
         style.setdefault("asset_refs", []).append(asset_ref.strip())
+    if sample_asset_ref:
+        style.setdefault("sample_assets", []).append({"source": sample_asset_ref.strip(), "added_at": _now()})
     if sample_flyer_notes:
         style.setdefault("sample_flyer_notes", []).append(sample_flyer_notes.strip())
     if sample_caption:
@@ -261,6 +286,8 @@ def update_event_context(
         style["default_hashtags"] = list(
             dict.fromkeys(style.get("default_hashtags", []) + _extract_hashtags(sample_caption))
         )
+    if style_analysis:
+        style.setdefault("style_analysis", []).append({"summary": style_analysis.strip(), "analyzed_at": _now()})
     if caption_structure:
         style["caption_structure"] = caption_structure.strip()
     if default_hashtags:
@@ -278,8 +305,119 @@ def get_event_context(event_id: str) -> str:
     """Return stored context for an event."""
     state = _load_state()
     event = _get_event(state, event_id)
+    _ensure_style_schema(event.setdefault("style", {}))
+    _save_state(state)
     _remember_session(SESSION_EVENT_KEY, event_id)
     return _json({"ok": True, "event": event})
+
+
+def _dominant_hex_colors(file_path: str) -> list[str]:
+    path = Path(file_path)
+    if not file_path or not path.exists() or path.suffix.lower() == ".pdf":
+        return []
+
+    try:
+        with Image.open(path) as image:
+            image = image.convert("RGB")
+            image.thumbnail((90, 90))
+            buckets: dict[tuple[int, int, int], int] = {}
+            pixels = image.get_flattened_data() if hasattr(image, "get_flattened_data") else image.getdata()
+            for red, green, blue in pixels:
+                key = (round(red / 32) * 32, round(green / 32) * 32, round(blue / 32) * 32)
+                if max(key) > 240 or min(key) < 16:
+                    continue
+                buckets[key] = buckets.get(key, 0) + 1
+    except OSError:
+        return []
+
+    colors = []
+    for (red, green, blue), _count in sorted(buckets.items(), key=lambda item: item[1], reverse=True)[:5]:
+        colors.append(f"#{max(0, min(red, 255)):02X}{max(0, min(green, 255)):02X}{max(0, min(blue, 255)):02X}")
+    return list(dict.fromkeys(colors))
+
+
+def _sample_layout(file_path: str) -> str:
+    path = Path(file_path)
+    if not file_path or not path.exists() or path.suffix.lower() == ".pdf":
+        return "Uploaded sample reference"
+    try:
+        with Image.open(path) as image:
+            width, height = image.size
+    except OSError:
+        return "Uploaded sample reference"
+
+    ratio = width / max(height, 1)
+    if 0.9 <= ratio <= 1.1:
+        return "Square or near-square social post layout"
+    if ratio < 0.9:
+        return "Tall portrait poster layout"
+    return "Wide banner-style layout"
+
+
+def analyze_sample_flyer_context(
+    event_id: str,
+    file_name: str = "",
+    caption: str = "",
+    file_path: str = "",
+    analysis_notes: str = "",
+) -> str:
+    """Store a sample flyer and extract reusable style context for future campaigns."""
+    state = _load_state()
+    event = _get_event(state, event_id)
+    style = _ensure_style_schema(event.setdefault("style", {}))
+
+    palette = _dominant_hex_colors(file_path)
+    caption_hashtags = _extract_hashtags(caption)
+    sample_asset = {
+        "file_name": file_name.strip() or Path(file_path).name or "sample-flyer",
+        "file_path": file_path.strip(),
+        "caption": caption.strip(),
+        "ingested_at": _now(),
+    }
+
+    existing_colors = style.get("colors", [])
+    if palette:
+        style["colors"] = list(dict.fromkeys(existing_colors + palette[:3]))
+    if caption_hashtags:
+        style["default_hashtags"] = list(dict.fromkeys(style.get("default_hashtags", []) + caption_hashtags))
+
+    analysis = {
+        "source_file": sample_asset["file_name"],
+        "layout": _sample_layout(file_path),
+        "color_palette": palette,
+        "typography_feel": "bold title hierarchy with short supporting details",
+        "hierarchy": "event name first, key detail block second, CTA last",
+        "logo_placement": "top or footer brand area; keep sponsor marks separated from the main title",
+        "cta_style": "short action line with high contrast",
+        "caption_tone": style.get("tone", "clear, energetic, professional student-event tone"),
+        "recurring_hashtags": caption_hashtags,
+        "notes": analysis_notes.strip(),
+    }
+    if "minimal" in caption.lower():
+        analysis["typography_feel"] = "clean minimal typography with generous spacing"
+    if "premium" in caption.lower():
+        analysis["typography_feel"] = "premium, confident typography with strong contrast"
+    if "workshop" in caption.lower():
+        analysis["hierarchy"] = "workshop title first, learning value second, registration CTA last"
+
+    style.setdefault("sample_assets", []).append(sample_asset)
+    style.setdefault("style_analysis", []).append(analysis)
+    style.setdefault("sample_flyer_notes", []).append(
+        f"{analysis['layout']}; {analysis['typography_feel']}; CTA: {analysis['cta_style']}"
+    )
+
+    event["updated_at"] = _now()
+    _save_state(state)
+    _remember_session(SESSION_EVENT_KEY, event_id)
+    return _json(
+        {
+            "ok": True,
+            "event_id": event_id,
+            "sample_asset": sample_asset,
+            "style_analysis": analysis,
+            "style": style,
+        }
+    )
 
 
 def draft_flyer_content(
@@ -323,6 +461,9 @@ def draft_flyer_content(
         "content": content,
         "missing_fields": missing,
         "unsafe_terms": unsafe_terms,
+        "flyer_mode": "template",
+        "flyer_preview_path": "",
+        "latest_user_action": "content drafted",
         "approvals": {
             "content": False,
             "flyer": False,
@@ -378,6 +519,7 @@ def edit_flyer_content(event_id: str, campaign_id: str, edit_instruction: str) -
     campaign["status"] = (
         "needs_content_review" if campaign["missing_fields"] or campaign["unsafe_terms"] else "content_draft"
     )
+    campaign["latest_user_action"] = "content edited"
     campaign["updated_at"] = _now()
     campaign.setdefault("revision_log", []).append({"stage": "content", "note": edit_instruction.strip(), "at": _now()})
     event["updated_at"] = _now()
@@ -397,6 +539,7 @@ def approve_flyer_content(event_id: str, campaign_id: str) -> str:
 
     campaign["approvals"]["content"] = True
     campaign["status"] = "content_approved"
+    campaign["latest_user_action"] = "content approved"
     campaign["updated_at"] = _now()
     campaign.setdefault("revision_log", []).append({"stage": "content", "note": "Content approved.", "at": _now()})
     event["updated_at"] = _now()
@@ -451,6 +594,196 @@ def _draw_wrapped(
     return y
 
 
+def _centered_text(draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int], text: str, font: Any, fill: str) -> None:
+    bbox = draw.textbbox((0, 0), text, font=font)
+    x = box[0] + ((box[2] - box[0]) - (bbox[2] - bbox[0])) / 2
+    y = box[1] + ((box[3] - box[1]) - (bbox[3] - bbox[1])) / 2 - 2
+    draw.text((x, y), text, fill=fill, font=font)
+
+
+def _latest_style_analysis(style: dict[str, Any]) -> dict[str, Any]:
+    analyses = style.get("style_analysis") or []
+    latest = analyses[-1] if analyses else {}
+    return latest if isinstance(latest, dict) else {"summary": str(latest)}
+
+
+def _event_palette(style: dict[str, Any]) -> tuple[str, str, str]:
+    latest = _latest_style_analysis(style)
+    colors = list(style.get("colors", []))
+    colors.extend(latest.get("color_palette", []) if isinstance(latest.get("color_palette"), list) else [])
+    return _color_palette(colors)
+
+
+def _render_template_flyer(
+    event: dict[str, Any],
+    campaign: dict[str, Any],
+    flyer_path: Path,
+    design_instruction: str,
+) -> None:
+    style = _ensure_style_schema(event.setdefault("style", {}))
+    content = campaign.get("content", {})
+    latest_analysis = _latest_style_analysis(style)
+    primary, ink, background = _event_palette(style)
+    soft_panel = "#FFFFFF"
+    muted = "#64748B"
+    accent_fill = "#DBEAFE"
+    if primary.lower().startswith("#0"):
+        accent_fill = "#D1FAE5"
+    if "premium" in design_instruction.lower():
+        background = "#F8FAFC"
+        soft_panel = "#FFFFFF"
+
+    width, height = 1080, 1350
+    image = Image.new("RGB", (width, height), background)
+    draw = ImageDraw.Draw(image)
+
+    draw.rectangle((0, 0, width, 156), fill=ink)
+    draw.rectangle((0, 156, width, 176), fill=primary)
+    draw.ellipse((735, -230, 1245, 280), fill=primary)
+    draw.ellipse((795, -170, 1185, 220), outline=accent_fill, width=18)
+    draw.rounded_rectangle((70, 215, 1010, 1118), radius=38, fill=soft_panel, outline="#E2E8F0", width=3)
+    draw.rectangle((70, 215, 116, 1118), fill=primary)
+    draw.rounded_rectangle((116, 215, 1010, 1118), radius=38, fill=soft_panel)
+
+    label_font = _font(26, bold=True)
+    meta_font = _font(30)
+    detail_font = _font(34, bold=True)
+    title_size = 74 if len(content.get("title", "")) < 48 else 62
+    title_font = _font(title_size, bold=True)
+    subtitle_font = _font(36, bold=True)
+    body_font = _font(32)
+    cta_font = _font(42, bold=True)
+    footer_font = _font(25)
+
+    logo_box = (78, 44, 455, 112)
+    draw.rounded_rectangle(logo_box, radius=16, outline=background, width=3)
+    _centered_text(draw, logo_box, event.get("name", "CampaignKernel")[:28], label_font, background)
+    draw.text((780, 60), "READY TO PUBLISH", fill=background, font=label_font)
+
+    y = 255
+    draw.rounded_rectangle((155, y, 400, y + 48), radius=24, fill=accent_fill)
+    _centered_text(draw, (155, y, 400, y + 48), "EVENT CAMPAIGN", label_font, ink)
+    y += 78
+
+    y = _draw_wrapped(draw, content.get("title", "Upcoming Event"), (155, y), title_font, ink, 17, 7)
+    y += 18
+    subtitle = content.get("subtitle", "")
+    y = _draw_wrapped(draw, subtitle, (155, y), subtitle_font, primary, 28, 8)
+    y += 42
+
+    detail_boxes = [
+        ("DATE", content.get("date", "TBA")),
+        ("TIME", content.get("time", "TBA")),
+        ("VENUE", content.get("venue", "TBA")),
+        ("FOR", content.get("audience", "Community audience")),
+    ]
+    box_x = 155
+    for index, (label, value) in enumerate(detail_boxes):
+        row = index // 2
+        col = index % 2
+        x = box_x + col * 392
+        detail_y = y + row * 124
+        draw.rounded_rectangle((x, detail_y, x + 348, detail_y + 92), radius=22, fill="#F8FAFC", outline="#E2E8F0")
+        draw.text((x + 24, detail_y + 18), label, fill=muted, font=label_font)
+        draw.text((x + 24, detail_y + 48), value[:23], fill=ink, font=detail_font)
+    y += 278
+
+    key_message = content.get("key_message", "")
+    if key_message:
+        y = _draw_wrapped(draw, key_message, (155, y), body_font, ink, 36, 10)
+        y += 28
+
+    cta = content.get("cta", "Join us")
+    draw.rounded_rectangle((155, 958, 925, 1065), radius=34, fill=primary)
+    _centered_text(draw, (155, 958, 925, 1065), cta[:44], cta_font, background)
+
+    analysis_line = ""
+    if latest_analysis:
+        analysis_line = latest_analysis.get("layout") or latest_analysis.get("summary", "")
+    if design_instruction:
+        analysis_line = design_instruction.strip()
+    if analysis_line:
+        draw.text((155, 1082), analysis_line[:78], fill=muted, font=footer_font)
+
+    draw.rectangle((0, 1196, width, height), fill=ink)
+    footer_lines = [
+        content.get("contact", "") or "Generated by CampaignKernel",
+        "Review the flyer and caption before publishing.",
+    ]
+    for index, line in enumerate(footer_lines):
+        draw.text((74, 1244 + index * 42), line[:96], fill=background, font=footer_font)
+
+    image.save(flyer_path)
+
+
+def _fit_image_to_canvas(source_bytes: bytes, flyer_path: Path) -> None:
+    with Image.open(io.BytesIO(source_bytes)) as source:
+        source = source.convert("RGB")
+        canvas_ratio = 1080 / 1350
+        source_ratio = source.width / max(source.height, 1)
+        if source_ratio > canvas_ratio:
+            new_height = 1350
+            new_width = int(new_height * source_ratio)
+        else:
+            new_width = 1080
+            new_height = int(new_width / source_ratio)
+        resized = source.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        left = max((new_width - 1080) // 2, 0)
+        top = max((new_height - 1350) // 2, 0)
+        cropped = resized.crop((left, top, left + 1080, top + 1350))
+        cropped.save(flyer_path)
+
+
+def _image_prompt(event: dict[str, Any], campaign: dict[str, Any], design_instruction: str) -> str:
+    style = _ensure_style_schema(event.setdefault("style", {}))
+    content = campaign.get("content", {})
+    latest = _latest_style_analysis(style)
+    return "\n".join(
+        [
+            "Create a polished vertical event flyer for social media.",
+            f"Event brand: {event.get('name', '')}",
+            f"Title: {content.get('title', '')}",
+            f"Date: {content.get('date', '')}",
+            f"Venue: {content.get('venue', '')}",
+            f"CTA: {content.get('cta', '')}",
+            f"Theme: {style.get('theme_notes', '')}",
+            f"Sample style: {latest}",
+            f"Design direction: {design_instruction}",
+            "Use readable text hierarchy, strong contrast, clean spacing, and leave room for logos.",
+        ]
+    )
+
+
+def _try_ai_flyer(event: dict[str, Any], campaign: dict[str, Any], flyer_path: Path, design_instruction: str) -> str:
+    image_model = os.environ.get(IMAGE_MODEL_ENV) or os.environ.get("OPENAI_IMAGE_MODEL", "")
+    if not image_model:
+        return f"{IMAGE_MODEL_ENV} or OPENAI_IMAGE_MODEL is not configured."
+
+    try:
+        from openai import OpenAI
+
+        client = OpenAI(
+            api_key=os.environ.get("OPENAI_API_KEY"),
+            base_url=os.environ.get("OPENAI_BASE_URL") or None,
+        )
+        response = client.images.generate(
+            model=image_model,
+            prompt=_image_prompt(event, campaign, design_instruction),
+            size=os.environ.get("CAMPAIGN_KERNEL_IMAGE_SIZE", "1024x1536"),
+        )
+        image_data = response.data[0]
+        if getattr(image_data, "b64_json", None):
+            _fit_image_to_canvas(base64.b64decode(image_data.b64_json), flyer_path)
+            return ""
+        if getattr(image_data, "url", None):
+            with urllib.request.urlopen(image_data.url, timeout=60) as remote_image:
+                _fit_image_to_canvas(remote_image.read(), flyer_path)
+            return ""
+        return "Image API response did not include b64_json or url data."
+    except Exception as error:
+        return f"AI image generation failed, so template mode was used: {error}"
+
+
 def generate_flyer(event_id: str, campaign_id: str, design_instruction: str = "") -> str:
     """Generate a PNG flyer from approved content and saved event style."""
     state = _load_state()
@@ -459,71 +792,35 @@ def generate_flyer(event_id: str, campaign_id: str, design_instruction: str = ""
     if not campaign.get("approvals", {}).get("content"):
         return _json({"ok": False, "blocked": True, "reason": "Approve flyer content before generating the flyer."})
 
-    style = event.get("style", {})
-    content = campaign.get("content", {})
-    primary, ink, background = _color_palette(style.get("colors", []))
-
-    width, height = 1080, 1350
-    image = Image.new("RGB", (width, height), background)
-    draw = ImageDraw.Draw(image)
-
-    draw.rectangle((0, 0, width, 160), fill=primary)
-    draw.rectangle((0, 1180, width, height), fill=ink)
-    draw.rectangle((72, 220, 130, 1080), fill=primary)
-
-    title_font = _font(78, bold=True)
-    subtitle_font = _font(38, bold=True)
-    body_font = _font(34)
-    small_font = _font(26)
-    cta_font = _font(42, bold=True)
-
-    logo_label = event["name"][:32]
-    draw.rounded_rectangle((72, 48, 378, 118), radius=18, outline=background, width=3)
-    draw.text((96, 68), logo_label, fill=background, font=small_font)
-
-    y = 230
-    y = _draw_wrapped(draw, content.get("title", "Upcoming Event"), (170, y), title_font, ink, 18, 8)
-    y += 20
-    y = _draw_wrapped(draw, content.get("subtitle", ""), (170, y), subtitle_font, primary, 28, 8)
-    y += 54
-
-    detail_lines = [
-        f"Date: {content.get('date', 'TBA')}",
-        f"Time: {content.get('time', 'TBA')}",
-        f"Venue: {content.get('venue', 'TBA')}",
-        f"For: {content.get('audience', 'Community audience')}",
-    ]
-    for line in detail_lines:
-        draw.text((170, y), line, fill=ink, font=body_font)
-        y += 56
-
-    y += 18
-    key_message = content.get("key_message", "")
-    y = _draw_wrapped(draw, key_message, (170, y), body_font, ink, 34, 10)
-    y += 44
-
-    cta = content.get("cta", "Join us")
-    draw.rounded_rectangle((170, y, 910, y + 104), radius=30, fill=primary)
-    draw.text((210, y + 28), cta[:42], fill=background, font=cta_font)
-
-    footer = "Generated by CampaignKernel"
-    if design_instruction:
-        footer = f"{footer} | {design_instruction[:72]}"
-    draw.text((72, 1244), footer, fill=background, font=small_font)
-    draw.text((72, 1286), "Review and approve before publishing.", fill=background, font=small_font)
-
     version = int(campaign.get("flyer", {}).get("version", 0)) + 1
     output_dir = _output_dir() / event_id / campaign_id
     output_dir.mkdir(parents=True, exist_ok=True)
     flyer_path = output_dir / f"flyer_v{version}.png"
-    image.save(flyer_path)
+
+    requested_mode = os.environ.get(IMAGE_MODE_ENV, "template").strip().lower()
+    mode = "template"
+    fallback_reason = ""
+    if requested_mode == "ai":
+        fallback_reason = _try_ai_flyer(event, campaign, flyer_path, design_instruction)
+        if fallback_reason:
+            _render_template_flyer(event, campaign, flyer_path, design_instruction)
+        else:
+            mode = "ai"
+    else:
+        _render_template_flyer(event, campaign, flyer_path, design_instruction)
 
     campaign["flyer"] = {
         "path": str(flyer_path),
         "version": version,
         "design_instruction": design_instruction.strip(),
+        "mode": mode,
+        "requested_mode": requested_mode or "template",
+        "fallback_reason": fallback_reason,
         "generated_at": _now(),
     }
+    campaign["flyer_mode"] = mode
+    campaign["flyer_preview_path"] = str(flyer_path)
+    campaign["latest_user_action"] = "flyer generated"
     campaign["approvals"]["flyer"] = False
     campaign["status"] = "flyer_draft"
     campaign["updated_at"] = _now()
@@ -544,6 +841,7 @@ def approve_flyer(event_id: str, campaign_id: str) -> str:
         return _json({"ok": False, "blocked": True, "reason": "Generate a flyer before approving it."})
     campaign["approvals"]["flyer"] = True
     campaign["status"] = "flyer_approved"
+    campaign["latest_user_action"] = "flyer approved"
     campaign["updated_at"] = _now()
     campaign.setdefault("revision_log", []).append({"stage": "flyer", "note": "Flyer approved.", "at": _now()})
     event["updated_at"] = _now()
@@ -559,7 +857,7 @@ def generate_caption_pack(event_id: str, campaign_id: str, user_direction: str =
     if not campaign.get("approvals", {}).get("flyer"):
         return _json({"ok": False, "blocked": True, "reason": "Approve the flyer before generating captions."})
 
-    style = event.get("style", {})
+    style = _ensure_style_schema(event.setdefault("style", {}))
     content = campaign.get("content", {})
     hashtags = style.get("default_hashtags", []) or ["#Event", "#Community", "#CampaignKernel"]
     hashtag_line = " ".join(hashtags[:12])
@@ -572,6 +870,9 @@ def generate_caption_pack(event_id: str, campaign_id: str, user_direction: str =
     sample = (
         "\n\nStyle reference: " + style.get("sample_captions", [""])[-1][:180] if style.get("sample_captions") else ""
     )
+    sample_analysis = _latest_style_analysis(style)
+    if sample_analysis and not sample:
+        sample = "\n\nStyle reference: " + (sample_analysis.get("hierarchy") or sample_analysis.get("layout", ""))[:180]
     direction = f"\nDirection: {user_direction.strip()}" if user_direction.strip() else ""
 
     instagram = f"{title} is here.\n\n" f"Date: {date}\nVenue: {venue}\n\n" f"{cta}.\n\n{hashtag_line}"
@@ -602,11 +903,13 @@ def generate_caption_pack(event_id: str, campaign_id: str, user_direction: str =
         "style_used": {
             "tone": tone,
             "caption_structure": caption_structure,
+            "sample_style": sample_analysis,
         },
         "generated_at": _now(),
     }
     campaign["approvals"]["caption"] = False
     campaign["status"] = "caption_draft"
+    campaign["latest_user_action"] = "captions generated"
     campaign["updated_at"] = _now()
     campaign.setdefault("revision_log", []).append(
         {"stage": "caption", "note": user_direction.strip() or "Generated caption pack.", "at": _now()}
@@ -636,6 +939,7 @@ def edit_caption_pack(event_id: str, campaign_id: str, edit_instruction: str) ->
 
     campaign["approvals"]["caption"] = False
     campaign["status"] = "caption_draft"
+    campaign["latest_user_action"] = "caption edited"
     campaign["updated_at"] = _now()
     campaign.setdefault("revision_log", []).append({"stage": "caption", "note": note, "at": _now()})
     event["updated_at"] = _now()
@@ -652,6 +956,7 @@ def approve_caption_pack(event_id: str, campaign_id: str) -> str:
         return _json({"ok": False, "blocked": True, "reason": "Generate captions before approving them."})
     campaign["approvals"]["caption"] = True
     campaign["status"] = "caption_approved"
+    campaign["latest_user_action"] = "caption approved"
     campaign["updated_at"] = _now()
     campaign.setdefault("revision_log", []).append({"stage": "caption", "note": "Caption pack approved.", "at": _now()})
     event["updated_at"] = _now()
@@ -690,6 +995,9 @@ def ingest_direct_campaign_assets(
         },
         "missing_fields": [],
         "unsafe_terms": unsafe_terms,
+        "flyer_mode": "direct",
+        "flyer_preview_path": flyer_path.strip(),
+        "latest_user_action": "direct package ingested",
         "approvals": {
             "content": True,
             "flyer": bool(flyer_path),
@@ -734,6 +1042,7 @@ def approve_campaign_package(event_id: str, campaign_id: str) -> str:
         return _json({"ok": False, "blocked": True, "unsafe_terms": campaign["unsafe_terms"]})
     approvals["campaign"] = True
     campaign["status"] = "campaign_approved"
+    campaign["latest_user_action"] = "campaign approved"
     campaign["updated_at"] = _now()
     campaign.setdefault("revision_log", []).append(
         {"stage": "campaign", "note": "Final campaign approved.", "at": _now()}
@@ -905,6 +1214,7 @@ def publish_campaign(event_id: str, campaign_id: str, targets: str, live_publish
         if all(result.get("status") in {"published", "ready", "sent"} for result in results)
         else "publish_attention"
     )
+    campaign["latest_user_action"] = "published or exported"
     campaign["updated_at"] = _now()
     event["updated_at"] = _now()
     _save_state(state)
