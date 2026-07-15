@@ -173,9 +173,16 @@ def _sample_event_id(text: str, chat_id: int) -> str:
     match = re.search(r"\bsample\s+for\s+(ck-[a-z0-9-]+)", text, flags=re.IGNORECASE)
     if match:
         return match.group(1)
+    event_match = re.search(r"\b(ck-[a-z0-9-]+)\b", text, flags=re.IGNORECASE)
+    if event_match:
+        return event_match.group(1)
     if text.lower().strip() in {"sample", "sample flyer", "sample for event"}:
         return _active(chat_id).get("event_id", "")
     return ""
+
+
+def _upload_event_id(text: str, chat_id: int) -> str:
+    return _sample_event_id(text, chat_id) or _active(chat_id).get("event_id", "")
 
 
 class CampaignTelegramHandler(AgentTelegramRequestHandler):
@@ -304,7 +311,7 @@ class CampaignTelegramHandler(AgentTelegramRequestHandler):
         has_upload = "photo" in message or "document" in message
 
         if chat_id and has_upload:
-            event_id = _sample_event_id(text, chat_id)
+            event_id = _upload_event_id(text, chat_id)
             if event_id:
                 try:
                     await self._send_chat_action(chat_id, "typing")
@@ -322,11 +329,11 @@ class CampaignTelegramHandler(AgentTelegramRequestHandler):
                 except Exception as error:
                     await self._send_message(chat_id, f"I could not save that sample flyer. {error}")
                 return
-            if text.lower().startswith("sample"):
-                await self._send_message(
-                    chat_id, "Create or choose an event first, then caption the upload: sample for ck-event-id"
-                )
-                return
+            await self._send_message(
+                chat_id,
+                "I received the file, but no event is active yet.\nCreate one with /new_event Event Name, then upload the sample again.",
+            )
+            return
 
         await super()._handle_message(message)
 
