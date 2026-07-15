@@ -5,6 +5,7 @@ import mimetypes
 import os
 import re
 import shlex
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -182,7 +183,7 @@ class CampaignTelegramHandler(AgentTelegramRequestHandler):
         super().__init__()
         self._commands_registered = False
         if os.environ.get("CAMPAIGN_KERNEL_REGISTER_COMMANDS", "true").lower() not in FALSE_VALUES:
-            self._set_my_commands_sync()
+            threading.Thread(target=self._set_my_commands_sync, daemon=True).start()
 
     def _set_my_commands_sync(self) -> None:
         if self._commands_registered:
