@@ -118,6 +118,21 @@ The server registers the main slash commands with Telegram on startup. You can a
 uv run python register_commands.py
 ```
 
+Production-style local run:
+
+```bash
+chmod +x ops/run_local.sh ops/start_pinggy.sh
+ops/run_local.sh
+uv run python ops/doctor.py
+```
+
+Readiness endpoints:
+
+```bash
+curl http://127.0.0.1:8000/campaign/ready
+curl http://127.0.0.1:8000/campaign/diagnostics
+```
+
 Expose the local server:
 
 ```bash
@@ -182,6 +197,7 @@ uv run pytest
 ```
 
 For the full non-code checklist before the demo/submission, see `MANUAL_SETUP.md`.
+For free/local production hardening and VM handoff, see `PRODUCTION_READINESS.md`.
 
 ## Competition Notes
 

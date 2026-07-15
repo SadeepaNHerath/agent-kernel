@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 import server
 from server import CampaignTelegramHandler
 from telegram_ux import (
@@ -202,3 +204,99 @@ def test_upload_without_active_event_gets_clear_instruction():
 
     assert sent["chat_id"] == 456
     assert "Create one with /new_event" in sent["text"]
+
+
+def test_chat_state_persists_to_disk(monkeypatch, tmp_path):
+    monkeypatch.setenv("CAMPAIGN_KERNEL_STATE_DIR", str(tmp_path / "state"))
+    server.CHAT_STATE.clear()
+
+    server._remember_chat(123, "ck-demo-event", "CK-0001")
+    server.CHAT_STATE.clear()
+    server.CHAT_STATE.update(server._load_chat_state())
+
+    active = server._active(123)
+    assert active["event_id"] == "ck-demo-event"
+    assert active["campaign_id"] == "CK-0001"
+    assert active["updated_at"]
+
+
+def test_duplicate_update_id_is_ignored(monkeypatch, tmp_path):
+    monkeypatch.setenv("CAMPAIGN_KERNEL_STATE_DIR", str(tmp_path / "state"))
+    server.PROCESSED_UPDATE_IDS.clear()
+    handler = object.__new__(CampaignTelegramHandler)
+    calls = {"count": 0}
+
+    class FakeLog:
+        def debug(self, *args, **kwargs):
+            pass
+
+        def info(self, *args, **kwargs):
+            pass
+
+        def error(self, *args, **kwargs):
+            pass
+
+    async def fake_handle_message(message):
+        calls["count"] += 1
+
+    handler._log = FakeLog()
+    handler._handle_message = fake_handle_message
+
+    body = {"update_id": 777, "message": {"message_id": 1, "chat": {"id": 123}, "text": "/start"}}
+    asyncio.run(handler._process_webhook_body(body))
+    asyncio.run(handler._process_webhook_body(body))
+
+    assert calls["count"] == 1
+
+
+def test_rejects_unsupported_upload_type():
+    handler = object.__new__(CampaignTelegramHandler)
+
+    async def fake_get_file_info(file_id):
+        return {"file_path": "documents/sample.txt", "file_size": 100}
+
+    async def fail_download(file_path):
+        raise AssertionError("Unsupported uploads should fail before download")
+
+    handler._get_file_info = fake_get_file_info
+    handler._download_telegram_file = fail_download
+
+    with pytest.raises(ValueError, match="PNG, JPG, WEBP, or PDF"):
+        asyncio.run(
+            handler._save_uploaded_sample(
+                "ck-demo-event",
+                {
+                    "message_id": 1,
+                    "document": {
+                        "file_id": "file-1",
+                        "file_name": "sample.txt",
+                        "mime_type": "text/plain",
+                    },
+                },
+            )
+        )
+
+
+def test_rejects_oversized_upload(monkeypatch):
+    monkeypatch.setenv("CAMPAIGN_KERNEL_MAX_UPLOAD_MB", "1")
+    handler = object.__new__(CampaignTelegramHandler)
+
+    async def fake_get_file_info(file_id):
+        return {"file_path": "photos/sample.jpg", "file_size": 2 * 1024 * 1024}
+
+    async def fail_download(file_path):
+        raise AssertionError("Oversized uploads should fail before download")
+
+    handler._get_file_info = fake_get_file_info
+    handler._download_telegram_file = fail_download
+
+    with pytest.raises(ValueError, match="too large"):
+        asyncio.run(
+            handler._save_uploaded_sample(
+                "ck-demo-event",
+                {
+                    "message_id": 1,
+                    "photo": [{"file_id": "small"}, {"file_id": "large"}],
+                },
+            )
+        )

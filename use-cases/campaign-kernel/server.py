@@ -6,6 +6,7 @@ import os
 import re
 import shlex
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -62,9 +63,16 @@ from tool import (
 
 OpenAIModule(AGENTS)
 
-CHAT_STATE: dict[int, dict[str, str]] = {}
+CHAT_STATE: dict[Any, dict[str, str]] = {}
+PROCESSED_UPDATE_IDS: list[int] = []
 STATE_DIR_ENV = "CAMPAIGN_KERNEL_STATE_DIR"
 DEFAULT_STATE_DIR = ".campaign_kernel_state"
+CHAT_STATE_FILE = "chat_state.json"
+PROCESSED_UPDATES_FILE = "processed_updates.json"
+MAX_PROCESSED_UPDATES = 500
+MAX_UPLOAD_MB_ENV = "CAMPAIGN_KERNEL_MAX_UPLOAD_MB"
+DEFAULT_MAX_UPLOAD_MB = 12
+ALLOWED_UPLOAD_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".pdf"}
 FALSE_VALUES = {"0", "false", "no", "off"}
 
 TELEGRAM_COMMANDS = [
@@ -97,7 +105,9 @@ def _looks_like_campaign_id(value: str) -> bool:
 
 
 def _active(chat_id: int) -> dict[str, str]:
-    return CHAT_STATE.setdefault(chat_id, {})
+    if chat_id in CHAT_STATE:
+        return CHAT_STATE.setdefault(chat_id, {})
+    return CHAT_STATE.setdefault(str(chat_id), {})
 
 
 def _remember_chat(chat_id: int, event_id: str = "", campaign_id: str = "") -> None:
@@ -106,6 +116,8 @@ def _remember_chat(chat_id: int, event_id: str = "", campaign_id: str = "") -> N
         active["event_id"] = event_id
     if campaign_id:
         active["campaign_id"] = campaign_id
+    active["updated_at"] = _now()
+    _save_chat_state()
 
 
 def _resolve_event_and_rest(chat_id: int, args: list[str]) -> tuple[str, list[str]]:
@@ -164,9 +176,141 @@ def _state_dir() -> Path:
     return Path(os.environ.get(STATE_DIR_ENV, DEFAULT_STATE_DIR))
 
 
+def _now() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _json_path(name: str) -> Path:
+    return _state_dir() / name
+
+
+def _read_json_file(path: Path, default: Any) -> Any:
+    if not path.exists():
+        return default
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return default
+
+
+def _write_json_file(path: Path, data: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_suffix(path.suffix + ".tmp")
+    with temp_path.open("w", encoding="utf-8") as handle:
+        json.dump(data, handle, indent=2, sort_keys=True)
+    temp_path.replace(path)
+
+
+def _load_chat_state() -> dict[str, dict[str, str]]:
+    data = _read_json_file(_json_path(CHAT_STATE_FILE), {})
+    return data if isinstance(data, dict) else {}
+
+
+def _save_chat_state() -> None:
+    serializable = {str(chat_id): value for chat_id, value in CHAT_STATE.items() if isinstance(value, dict)}
+    _write_json_file(_json_path(CHAT_STATE_FILE), serializable)
+
+
+def _load_processed_update_ids() -> list[int]:
+    data = _read_json_file(_json_path(PROCESSED_UPDATES_FILE), [])
+    if not isinstance(data, list):
+        return []
+    update_ids = []
+    for update_id in data[-MAX_PROCESSED_UPDATES:]:
+        try:
+            update_ids.append(int(update_id))
+        except (TypeError, ValueError):
+            continue
+    return update_ids
+
+
+def _save_processed_update_ids() -> None:
+    _write_json_file(_json_path(PROCESSED_UPDATES_FILE), PROCESSED_UPDATE_IDS[-MAX_PROCESSED_UPDATES:])
+
+
+def _was_update_processed(update_id: int | None) -> bool:
+    return update_id is not None and update_id in PROCESSED_UPDATE_IDS
+
+
+def _remember_processed_update(update_id: int | None) -> None:
+    if update_id is None or update_id in PROCESSED_UPDATE_IDS:
+        return
+    PROCESSED_UPDATE_IDS.append(update_id)
+    del PROCESSED_UPDATE_IDS[:-MAX_PROCESSED_UPDATES]
+    _save_processed_update_ids()
+
+
+def _max_upload_bytes() -> int:
+    raw_value = os.environ.get(MAX_UPLOAD_MB_ENV, str(DEFAULT_MAX_UPLOAD_MB))
+    try:
+        megabytes = max(1, int(raw_value))
+    except ValueError:
+        megabytes = DEFAULT_MAX_UPLOAD_MB
+    return megabytes * 1024 * 1024
+
+
 def _safe_file_name(name: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "-", name.strip()).strip(".-")
     return cleaned or "sample-flyer"
+
+
+def _is_allowed_upload(file_name: str, telegram_path: str = "", mime_type: str = "") -> bool:
+    suffix = Path(file_name or telegram_path).suffix.lower()
+    if suffix in ALLOWED_UPLOAD_SUFFIXES:
+        return True
+    return mime_type.startswith("image/") or mime_type == "application/pdf"
+
+
+def _state_dir_writable() -> bool:
+    try:
+        path = _state_dir()
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / ".write_probe"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        return True
+    except OSError:
+        return False
+
+
+def _runtime_diagnostics() -> dict[str, Any]:
+    return {
+        "ok": True,
+        "checked_at": _now(),
+        "state_dir": str(_state_dir()),
+        "state_dir_writable": _state_dir_writable(),
+        "telegram_token_configured": bool(os.environ.get("AK_TELEGRAM__BOT_TOKEN")),
+        "webhook_secret_configured": bool(os.environ.get("AK_TELEGRAM__WEBHOOK_SECRET")),
+        "openai_key_configured": bool(os.environ.get("OPENAI_API_KEY")),
+        "openai_base_url_configured": bool(os.environ.get("OPENAI_BASE_URL")),
+        "openai_model": os.environ.get("OPENAI_MODEL", ""),
+        "mock_publish": os.environ.get("CAMPAIGN_KERNEL_MOCK_PUBLISH", "true"),
+        "live_publish": os.environ.get("CAMPAIGN_KERNEL_LIVE_PUBLISH", "false"),
+        "image_mode": os.environ.get("CAMPAIGN_KERNEL_IMAGE_MODE", "template"),
+        "max_upload_mb": _max_upload_bytes() // (1024 * 1024),
+        "active_chats": len(CHAT_STATE),
+        "processed_update_cache": len(PROCESSED_UPDATE_IDS),
+    }
+
+
+def _log_runtime_warnings(log: Any) -> None:
+    diagnostics = _runtime_diagnostics()
+    required_flags = {
+        "AK_TELEGRAM__BOT_TOKEN": diagnostics["telegram_token_configured"],
+        "OPENAI_API_KEY": diagnostics["openai_key_configured"],
+    }
+    for name, configured in required_flags.items():
+        if not configured:
+            log.warning("%s is not configured.", name)
+    if not diagnostics["webhook_secret_configured"]:
+        log.warning("AK_TELEGRAM__WEBHOOK_SECRET is not configured; webhook requests are less protected.")
+    if not diagnostics["state_dir_writable"]:
+        log.warning("CampaignKernel state directory is not writable: %s", diagnostics["state_dir"])
+
+
+CHAT_STATE.update(_load_chat_state())
+PROCESSED_UPDATE_IDS.extend(_load_processed_update_ids())
 
 
 def _sample_event_id(text: str, chat_id: int) -> str:
@@ -189,8 +333,32 @@ class CampaignTelegramHandler(AgentTelegramRequestHandler):
     def __init__(self):
         super().__init__()
         self._commands_registered = False
+        _log_runtime_warnings(self._log)
         if os.environ.get("CAMPAIGN_KERNEL_REGISTER_COMMANDS", "true").lower() not in FALSE_VALUES:
             threading.Thread(target=self._set_my_commands_sync, daemon=True).start()
+
+    def get_router(self):
+        router = super().get_router()
+
+        @router.get("/campaign/ready")
+        def campaign_ready():
+            diagnostics = _runtime_diagnostics()
+            diagnostics["commands_registered"] = self._commands_registered
+            diagnostics["ready"] = (
+                diagnostics["state_dir_writable"]
+                and diagnostics["telegram_token_configured"]
+                and diagnostics["openai_key_configured"]
+            )
+            return diagnostics
+
+        @router.get("/campaign/diagnostics")
+        def campaign_diagnostics():
+            diagnostics = _runtime_diagnostics()
+            diagnostics["commands_registered"] = self._commands_registered
+            diagnostics["safe_note"] = "No secrets are returned by this endpoint."
+            return diagnostics
+
+        return router
 
     def _set_my_commands_sync(self) -> None:
         if self._commands_registered:
@@ -219,6 +387,10 @@ class CampaignTelegramHandler(AgentTelegramRequestHandler):
             self._log.warning("Could not register Telegram commands: %s", error)
 
     async def _process_webhook_body(self, body: dict):
+        update_id = body.get("update_id")
+        if _was_update_processed(update_id):
+            self._log.info("Skipping duplicate Telegram update: %s", update_id)
+            return
         try:
             self._log.debug("Received CampaignKernel Telegram update: %s", body)
             if "message" in body:
@@ -235,6 +407,8 @@ class CampaignTelegramHandler(AgentTelegramRequestHandler):
                 self._log.debug("Unhandled CampaignKernel update type: %s", list(body.keys()))
         except Exception as error:
             self._log.error("Error processing CampaignKernel Telegram update: %s", error, exc_info=True)
+        finally:
+            _remember_processed_update(update_id)
 
     async def _send_photo(
         self, chat_id: int, photo_path: str, caption: str, reply_markup: dict[str, Any] | None = None
@@ -275,12 +449,14 @@ class CampaignTelegramHandler(AgentTelegramRequestHandler):
     async def _save_uploaded_sample(self, event_id: str, message: dict[str, Any]) -> tuple[str, str]:
         file_id = ""
         file_name = "sample-flyer.jpg"
+        mime_type = ""
         if "photo" in message and message.get("photo"):
             file_id = message["photo"][-1].get("file_id", "")
         elif "document" in message:
             document = message.get("document", {})
             file_id = document.get("file_id", "")
             file_name = document.get("file_name", "sample-flyer")
+            mime_type = document.get("mime_type", "")
 
         if not file_id:
             raise ValueError("No image or document file was found.")
@@ -292,10 +468,22 @@ class CampaignTelegramHandler(AgentTelegramRequestHandler):
         telegram_path = file_info["file_path"]
         if "photo" in message:
             file_name = Path(telegram_path).name or file_name
+        file_size = file_info.get("file_size", 0)
+        max_upload_bytes = _max_upload_bytes()
+        if isinstance(file_size, int) and file_size > max_upload_bytes:
+            raise ValueError(
+                f"Sample file is too large. Maximum allowed size is {max_upload_bytes // (1024 * 1024)} MB."
+            )
+        if not _is_allowed_upload(file_name, telegram_path, mime_type):
+            raise ValueError("Please upload a PNG, JPG, WEBP, or PDF sample flyer.")
 
         content = await self._download_telegram_file(telegram_path)
         if content is None:
             raise ValueError("The sample file could not be downloaded.")
+        if len(content) > max_upload_bytes:
+            raise ValueError(
+                f"Sample file is too large. Maximum allowed size is {max_upload_bytes // (1024 * 1024)} MB."
+            )
 
         upload_dir = _state_dir() / "uploads" / event_id
         upload_dir.mkdir(parents=True, exist_ok=True)

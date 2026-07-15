@@ -1,0 +1,17 @@
+[Unit]
+Description=CampaignKernel Telegram bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/agent-kernel/use-cases/campaign-kernel
+EnvironmentFile=/opt/agent-kernel/use-cases/campaign-kernel/.env
+ExecStart=/usr/bin/env uv run python server.py
+Restart=always
+RestartSec=5
+User=campaignkernel
+Group=campaignkernel
+
+[Install]
+WantedBy=multi-user.target

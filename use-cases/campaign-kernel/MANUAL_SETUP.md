@@ -30,6 +30,12 @@ The server registers slash commands on startup. If the commands do not appear, r
 uv run python register_commands.py
 ```
 
+Run the production-style doctor before a demo:
+
+```bash
+uv run python ops/doctor.py
+```
+
 ## Required Local Environment
 
 ```bash
@@ -40,6 +46,7 @@ export AK_TELEGRAM__BOT_TOKEN="..."
 export AK_TELEGRAM__WEBHOOK_SECRET="campaign-kernel-secret"
 export AK_MULTIMODAL__ENABLED=true
 export CAMPAIGN_KERNEL_MOCK_PUBLISH=true
+export CAMPAIGN_KERNEL_MAX_UPLOAD_MB=12
 ```
 
 For Azure OpenAI, `OPENAI_MODEL` should match the model/deployment name configured on the Azure OpenAI resource.
