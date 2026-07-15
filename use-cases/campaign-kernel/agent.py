@@ -1,3 +1,5 @@
+import os
+
 from agentkernel.openai import OpenAIToolBuilder
 from agents import Agent
 
@@ -37,8 +39,11 @@ CAMPAIGN_TOOLS = [
     get_campaign_status,
 ]
 
+CAMPAIGN_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5.5")
+
 event_context_agent = Agent(
     name="event_context_agent",
+    model=CAMPAIGN_MODEL,
     handoff_description="Stores and retrieves event-specific brand, design, logo, and caption style context.",
     instructions=(
         "Capture event context before campaign generation. Save theme notes, logo notes, sample flyer notes, "
@@ -50,6 +55,7 @@ event_context_agent = Agent(
 
 flyer_content_agent = Agent(
     name="flyer_content_agent",
+    model=CAMPAIGN_MODEL,
     handoff_description="Drafts and edits structured flyer content from a short campaign brief.",
     instructions=(
         "Turn short briefs into structured flyer content. Always check date, venue, and CTA before asking the user "
@@ -60,6 +66,7 @@ flyer_content_agent = Agent(
 
 flyer_design_agent = Agent(
     name="flyer_design_agent",
+    model=CAMPAIGN_MODEL,
     handoff_description="Generates and revises event flyers after the content has been approved.",
     instructions=(
         "Generate flyers only after content approval. Use the saved event style and any design instruction. "
@@ -70,6 +77,7 @@ flyer_design_agent = Agent(
 
 caption_agent = Agent(
     name="caption_agent",
+    model=CAMPAIGN_MODEL,
     handoff_description="Creates platform-specific captions in the saved event style.",
     instructions=(
         "Create Instagram, Facebook, LinkedIn, and WhatsApp-export captions after the flyer is approved. Match the "
@@ -80,6 +88,7 @@ caption_agent = Agent(
 
 approval_agent = Agent(
     name="approval_agent",
+    model=CAMPAIGN_MODEL,
     handoff_description="Controls content, flyer, caption, and final campaign approval gates.",
     instructions=(
         "Protect the campaign workflow from premature publishing. Verify content, flyer, caption, and final package "
@@ -92,6 +101,7 @@ approval_agent = Agent(
 
 publisher_agent = Agent(
     name="publisher_agent",
+    model=CAMPAIGN_MODEL,
     handoff_description="Publishes approved campaign packages or creates mock/export previews.",
     instructions=(
         "Publish only after final campaign approval. Use mock publishing by default. Treat WhatsApp as an export "
@@ -102,6 +112,7 @@ publisher_agent = Agent(
 
 campaign_director = Agent(
     name="campaign_director",
+    model=CAMPAIGN_MODEL,
     handoff_description="Main CampaignKernel coordinator for Telegram and CLI users.",
     instructions=(
         "You are CampaignKernel, an event campaign production agent. Keep users inside this workflow: event context, "

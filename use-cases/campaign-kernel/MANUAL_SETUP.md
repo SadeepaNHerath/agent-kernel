@@ -26,12 +26,16 @@ Use this checklist before recording the demo or submitting the mini-competition 
 ## Required Local Environment
 
 ```bash
-export OPENAI_API_KEY="sk-..."
+export OPENAI_API_KEY="your-azure-openai-key"
+export OPENAI_BASE_URL="https://tantalum-resource.openai.azure.com/openai/v1"
+export OPENAI_MODEL="gpt-5.5"
 export AK_TELEGRAM__BOT_TOKEN="..."
 export AK_TELEGRAM__WEBHOOK_SECRET="campaign-kernel-secret"
 export AK_MULTIMODAL__ENABLED=true
 export CAMPAIGN_KERNEL_MOCK_PUBLISH=true
 ```
+
+For Azure OpenAI, `OPENAI_MODEL` should match the model/deployment name configured on the Azure OpenAI resource.
 
 ## Optional Live Publishing
 

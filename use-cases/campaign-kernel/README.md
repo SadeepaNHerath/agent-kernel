@@ -41,7 +41,7 @@ Prerequisites:
 - Python 3.12.
 - `uv` for dependency management.
 - Telegram bot token from BotFather for Telegram demo.
-- OpenAI API key for Agent Kernel agent execution.
+- OpenAI or Azure OpenAI compatible API key for Agent Kernel agent execution.
 
 Install dependencies:
 
@@ -53,13 +53,17 @@ chmod +x build.sh
 Configure environment variables:
 
 ```bash
-export OPENAI_API_KEY="sk-..."
+export OPENAI_API_KEY="your-azure-openai-key"
+export OPENAI_BASE_URL="https://tantalum-resource.openai.azure.com/openai/v1"
+export OPENAI_MODEL="gpt-5.5"
 export AK_TELEGRAM__BOT_TOKEN="123456789:ABC..."
 export AK_TELEGRAM__WEBHOOK_SECRET="campaign-kernel-secret"
 export AK_MULTIMODAL__ENABLED=true
 export CAMPAIGN_KERNEL_STATE_DIR=".campaign_kernel_state"
 export CAMPAIGN_KERNEL_MOCK_PUBLISH=true
 ```
+
+`OPENAI_MODEL` is passed to every CampaignKernel agent. For Azure OpenAI, use the model or deployment name exposed by your Azure OpenAI resource.
 
 Optional live publishing variables:
 
