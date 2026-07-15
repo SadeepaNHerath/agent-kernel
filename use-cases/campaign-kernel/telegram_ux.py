@@ -219,9 +219,13 @@ def sample_saved_message(payload: str | dict[str, Any]) -> str:
         return "I could not read that sample flyer. " + _format_blocked(data)
     analysis = data.get("style_analysis", {})
     palette = ", ".join(analysis.get("color_palette", [])[:4]) if isinstance(analysis, dict) else ""
+    style = data.get("style", {})
+    profile = style.get("style_profile", {}) if isinstance(style, dict) else {}
     lines = [
         "Sample flyer saved.",
+        f"Samples learned: {profile.get('sample_count', 1)}",
         f"Layout: {analysis.get('layout', 'sample reference')}",
+        f"Pattern: {profile.get('accent_structure', analysis.get('accent_structure', 'event style'))}",
         f"Style: {analysis.get('typography_feel', 'event-style reference')}",
     ]
     if palette:

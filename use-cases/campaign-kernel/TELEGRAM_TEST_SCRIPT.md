@@ -47,10 +47,12 @@ Upload a sample flyer image or PDF and use this Telegram caption:
 sample for ck-idealize-ai-workshop
 ```
 
+Upload a second sample with the same caption to show that CampaignKernel combines patterns across samples.
+
 Expected result:
 
 - Bot confirms the sample was saved.
-- Bot summarizes layout, style, and palette.
+- Bot summarizes sample count, layout, pattern, style, and palette.
 
 ## 5. Create Campaign Brief
 
@@ -75,6 +77,16 @@ Expected result:
 - Bot sends the generated flyer PNG directly in chat.
 - Flyer message includes `Approve Flyer`, `Edit Flyer`, and `Regenerate` buttons.
 
+Optional edit test:
+
+```text
+/generate_flyer dark bold centered poster with large title and big CTA
+```
+
+Expected result:
+
+- The new flyer visually changes layout and emphasis.
+
 ## 7. Captions And Final Approval
 
 Click:
@@ -88,6 +100,16 @@ Expected result:
 
 - Bot shows a short Instagram caption preview.
 - Final approval shows publish/export buttons.
+
+Optional caption edit test:
+
+```text
+/edit make it shorter and more professional, no hashtags
+```
+
+Expected result:
+
+- Caption text is rewritten, shorter, and hashtags are removed.
 
 ## 8. Publish Demo
 

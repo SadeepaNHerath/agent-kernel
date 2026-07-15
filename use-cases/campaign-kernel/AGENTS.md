@@ -9,8 +9,8 @@ CampaignKernel uses Agent Kernel as the orchestration layer for an event campaig
 - `campaign_director`: Main routing agent. Decides whether the user is setting up an event, drafting content, editing, approving, packaging, or publishing.
 - `event_context_agent`: Captures event-specific style context such as theme, colors, logo notes, uploaded sample flyers, sample captions, hashtag style, and caption structure.
 - `flyer_content_agent`: Converts a short event brief into structured flyer content and asks for missing critical details before design work starts.
-- `flyer_design_agent`: Generates or regenerates a flyer from approved content and stored design context.
-- `caption_agent`: Produces platform-specific captions using the saved event caption pattern and tone.
+- `flyer_design_agent`: Generates or regenerates a flyer from approved content, the aggregate event style profile, and the latest user design prompt.
+- `caption_agent`: Produces or rewrites platform-specific captions using the saved event caption pattern, aggregate sample profile, and the latest edit prompt.
 - `approval_agent`: Enforces the approval workflow so content, flyer, caption, and final package are not published prematurely.
 - `publisher_agent`: Publishes through configured adapters or creates mock previews/export packages when live credentials are unavailable.
 
@@ -48,6 +48,7 @@ Each event stores:
 - uploaded sample asset references
 - sample flyer notes
 - structured sample flyer analysis
+- aggregate event style profile across all uploaded samples
 - sample captions
 - caption structure
 - default hashtags

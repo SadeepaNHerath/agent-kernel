@@ -10,7 +10,7 @@ The primary interface is Telegram. A separate Telegram event chat or channel can
 
 - Build an Agent Kernel use case under `use-cases/campaign-kernel`.
 - Use Telegram as the user-facing integration.
-- Support event setup with theme notes, colors, logo notes, sample flyer notes, uploaded sample flyer analysis, sample captions, caption structure, and default hashtags.
+- Support event setup with theme notes, colors, logo notes, sample flyer notes, uploaded sample flyer analysis, aggregate multi-sample style profile, sample captions, caption structure, and default hashtags.
 - Register Telegram slash commands for the main workflow.
 - Use short user-facing messages and inline buttons instead of raw JSON in normal Telegram replies.
 - Send generated flyer images directly into Telegram chat.
@@ -20,11 +20,11 @@ The primary interface is Telegram. A separate Telegram event chat or channel can
   - flyer content draft
   - content edits
   - content approval
-  - flyer generation with template mode by default and optional AI image mode with fallback
+  - flyer generation with template mode by default, prompt-responsive layout variants, and optional AI image mode with fallback
   - flyer edits/regeneration
   - flyer approval
   - caption pack generation
-  - caption edits
+  - caption edits that rewrite the platform captions according to the prompt
   - caption approval
   - final campaign approval
   - publish or export

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import colorsys
 import io
 import json
 import os
@@ -9,6 +10,7 @@ import textwrap
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -354,6 +356,207 @@ def _sample_layout(file_path: str) -> str:
     return "Wide banner-style layout"
 
 
+def _region_average(image: Image.Image, box: tuple[int, int, int, int]) -> tuple[float, float, float]:
+    region = image.crop(box)
+    pixels = list(region.get_flattened_data() if hasattr(region, "get_flattened_data") else region.getdata())
+    if not pixels:
+        return 0, 0, 0
+    red = sum(pixel[0] for pixel in pixels) / len(pixels)
+    green = sum(pixel[1] for pixel in pixels) / len(pixels)
+    blue = sum(pixel[2] for pixel in pixels) / len(pixels)
+    return red, green, blue
+
+
+def _brightness(rgb: tuple[float, float, float]) -> float:
+    red, green, blue = rgb
+    return (red * 0.299) + (green * 0.587) + (blue * 0.114)
+
+
+def _image_visual_features(file_path: str) -> dict[str, Any]:
+    path = Path(file_path)
+    if not file_path or not path.exists() or path.suffix.lower() == ".pdf":
+        return {
+            "background_tone": "unknown",
+            "color_energy": "unknown",
+            "accent_structure": "uploaded reference",
+            "logo_placement_hint": "top or footer brand area",
+            "cta_style_hint": "high contrast CTA block",
+        }
+
+    try:
+        with Image.open(path) as image:
+            image = image.convert("RGB")
+            original_size = image.size
+            image.thumbnail((160, 200))
+            width, height = image.size
+            pixels = list(image.get_flattened_data() if hasattr(image, "get_flattened_data") else image.getdata())
+    except OSError:
+        return {
+            "background_tone": "unknown",
+            "color_energy": "unknown",
+            "accent_structure": "uploaded reference",
+            "logo_placement_hint": "top or footer brand area",
+            "cta_style_hint": "high contrast CTA block",
+        }
+
+    if not pixels:
+        return {}
+
+    avg_rgb = (
+        sum(pixel[0] for pixel in pixels) / len(pixels),
+        sum(pixel[1] for pixel in pixels) / len(pixels),
+        sum(pixel[2] for pixel in pixels) / len(pixels),
+    )
+    avg_brightness = _brightness(avg_rgb)
+    avg_saturation = sum(
+        colorsys.rgb_to_hsv(pixel[0] / 255, pixel[1] / 255, pixel[2] / 255)[1] for pixel in pixels
+    ) / len(pixels)
+    background_tone = "dark" if avg_brightness < 95 else "light" if avg_brightness > 185 else "balanced"
+    color_energy = "vibrant" if avg_saturation > 0.42 else "muted" if avg_saturation < 0.18 else "balanced"
+
+    top = _region_average(image, (0, 0, width, max(1, int(height * 0.16))))
+    bottom = _region_average(image, (0, max(0, int(height * 0.84)), width, height))
+    left = _region_average(image, (0, 0, max(1, int(width * 0.14)), height))
+    right = _region_average(image, (max(0, int(width * 0.86)), 0, width, height))
+    center = _region_average(
+        image,
+        (
+            max(0, int(width * 0.28)),
+            max(0, int(height * 0.28)),
+            max(1, int(width * 0.72)),
+            max(1, int(height * 0.72)),
+        ),
+    )
+    center_brightness = _brightness(center)
+    edge_bands = []
+    for name, rgb in {"top": top, "bottom": bottom, "left": left, "right": right}.items():
+        if abs(_brightness(rgb) - center_brightness) > 38:
+            edge_bands.append(name)
+
+    if {"top", "bottom"}.issubset(edge_bands):
+        accent_structure = "header and footer bands"
+        logo_hint = "top brand strip with footer partner area"
+        cta_hint = "bottom CTA strip"
+    elif "left" in edge_bands or "right" in edge_bands:
+        accent_structure = "side accent rail"
+        logo_hint = "top-left brand slot"
+        cta_hint = "side-aligned CTA block"
+    elif "top" in edge_bands:
+        accent_structure = "strong header band"
+        logo_hint = "top brand strip"
+        cta_hint = "lower CTA button"
+    elif "bottom" in edge_bands:
+        accent_structure = "strong footer band"
+        logo_hint = "footer brand or partner strip"
+        cta_hint = "bottom CTA strip"
+    elif background_tone == "dark":
+        accent_structure = "full-bleed dark poster"
+        logo_hint = "small high-contrast top logo"
+        cta_hint = "bright CTA button"
+    else:
+        accent_structure = "clean central poster"
+        logo_hint = "top or footer brand area"
+        cta_hint = "high contrast CTA block"
+
+    return {
+        "original_size": original_size,
+        "background_tone": background_tone,
+        "color_energy": color_energy,
+        "accent_structure": accent_structure,
+        "edge_bands": edge_bands,
+        "logo_placement_hint": logo_hint,
+        "cta_style_hint": cta_hint,
+    }
+
+
+def _caption_pattern(caption: str) -> dict[str, Any]:
+    lines = [line.strip() for line in caption.splitlines() if line.strip()]
+    hashtags = _extract_hashtags(caption)
+    lower = caption.lower()
+    hook_style = "question hook" if "?" in caption[:120] else "direct announcement"
+    if any(word in lower for word in ["ready", "join", "register", "apply", "build"]):
+        hook_style = "action-led hook"
+    if any(word in lower for word in ["we are excited", "proud to", "announce"]):
+        hook_style = "formal announcement hook"
+    cta_phrases = []
+    for phrase in ["register now", "link in bio", "join us", "apply now", "save the date"]:
+        if phrase in lower:
+            cta_phrases.append(phrase)
+    return {
+        "line_count": len(lines),
+        "hook_style": hook_style,
+        "cta_phrases": cta_phrases,
+        "hashtag_count": len(hashtags),
+        "hashtags": hashtags,
+        "has_hashtag_footer": bool(lines and all(part.startswith("#") for part in lines[-1].split())),
+    }
+
+
+def _analysis_items(style: dict[str, Any]) -> list[dict[str, Any]]:
+    return [item for item in style.get("style_analysis", []) if isinstance(item, dict)]
+
+
+def _most_common(values: list[str], default: str) -> str:
+    clean_values = [value for value in values if value]
+    if not clean_values:
+        return default
+    return Counter(clean_values).most_common(1)[0][0]
+
+
+def _style_profile(style: dict[str, Any]) -> dict[str, Any]:
+    analyses = _analysis_items(style)
+    palettes: list[str] = []
+    for color in style.get("colors", []):
+        palettes.append(str(color))
+    for analysis in analyses:
+        palettes.extend(analysis.get("color_palette", []) if isinstance(analysis.get("color_palette"), list) else [])
+
+    caption_patterns = [
+        _caption_pattern(caption)
+        for caption in style.get("sample_captions", [])
+        if caption.strip() and "sample for ck-" not in caption.lower()
+    ]
+    for asset in style.get("sample_assets", []):
+        caption = asset.get("caption", "") if isinstance(asset, dict) else ""
+        if caption.strip() and "sample for ck-" not in caption.lower():
+            caption_patterns.append(_caption_pattern(caption))
+
+    sample_count = max(len(style.get("sample_assets", [])), len(analyses))
+    profile = {
+        "sample_count": sample_count,
+        "dominant_layout": _most_common(
+            [analysis.get("layout", "") for analysis in analyses], "Tall portrait poster layout"
+        ),
+        "background_tone": _most_common([analysis.get("background_tone", "") for analysis in analyses], "balanced"),
+        "accent_structure": _most_common(
+            [analysis.get("accent_structure", "") for analysis in analyses], "clean central poster"
+        ),
+        "typography_feel": _most_common(
+            [analysis.get("typography_feel", "") for analysis in analyses],
+            "bold title hierarchy with short supporting details",
+        ),
+        "hierarchy": _most_common(
+            [analysis.get("hierarchy", "") for analysis in analyses],
+            "event title first, event value second, details third, CTA last",
+        ),
+        "logo_placement": _most_common(
+            [analysis.get("logo_placement", "") for analysis in analyses], "top or footer brand area"
+        ),
+        "cta_style": _most_common([analysis.get("cta_style", "") for analysis in analyses], "high contrast CTA block"),
+        "color_palette": list(dict.fromkeys(palettes))[:8],
+        "caption_hook_style": _most_common(
+            [pattern.get("hook_style", "") for pattern in caption_patterns], "action-led hook"
+        ),
+        "caption_hashtag_footer": (
+            any(pattern.get("has_hashtag_footer") for pattern in caption_patterns) if caption_patterns else True
+        ),
+        "caption_cta_phrases": list(
+            dict.fromkeys(phrase for pattern in caption_patterns for phrase in pattern.get("cta_phrases", []))
+        )[:4],
+    }
+    return profile
+
+
 def analyze_sample_flyer_context(
     event_id: str,
     file_name: str = "",
@@ -367,6 +570,7 @@ def analyze_sample_flyer_context(
     style = _ensure_style_schema(event.setdefault("style", {}))
 
     palette = _dominant_hex_colors(file_path)
+    visual_features = _image_visual_features(file_path)
     caption_hashtags = _extract_hashtags(caption)
     sample_asset = {
         "file_name": file_name.strip() or Path(file_path).name or "sample-flyer",
@@ -385,10 +589,15 @@ def analyze_sample_flyer_context(
         "source_file": sample_asset["file_name"],
         "layout": _sample_layout(file_path),
         "color_palette": palette,
+        "background_tone": visual_features.get("background_tone", "unknown"),
+        "color_energy": visual_features.get("color_energy", "unknown"),
+        "accent_structure": visual_features.get("accent_structure", "uploaded reference"),
+        "edge_bands": visual_features.get("edge_bands", []),
         "typography_feel": "bold title hierarchy with short supporting details",
         "hierarchy": "event name first, key detail block second, CTA last",
-        "logo_placement": "top or footer brand area; keep sponsor marks separated from the main title",
-        "cta_style": "short action line with high contrast",
+        "logo_placement": visual_features.get("logo_placement_hint", "top or footer brand area"),
+        "cta_style": visual_features.get("cta_style_hint", "short action line with high contrast"),
+        "caption_pattern": _caption_pattern(caption) if caption.strip() else {},
         "caption_tone": style.get("tone", "clear, energetic, professional student-event tone"),
         "recurring_hashtags": caption_hashtags,
         "notes": analysis_notes.strip(),
@@ -405,6 +614,7 @@ def analyze_sample_flyer_context(
     style.setdefault("sample_flyer_notes", []).append(
         f"{analysis['layout']}; {analysis['typography_feel']}; CTA: {analysis['cta_style']}"
     )
+    style["style_profile"] = _style_profile(style)
 
     event["updated_at"] = _now()
     _save_state(state)
@@ -608,10 +818,98 @@ def _latest_style_analysis(style: dict[str, Any]) -> dict[str, Any]:
 
 
 def _event_palette(style: dict[str, Any]) -> tuple[str, str, str]:
-    latest = _latest_style_analysis(style)
-    colors = list(style.get("colors", []))
-    colors.extend(latest.get("color_palette", []) if isinstance(latest.get("color_palette"), list) else [])
+    profile = style.get("style_profile") if isinstance(style.get("style_profile"), dict) else _style_profile(style)
+    colors = list(profile.get("color_palette", [])) or list(style.get("colors", []))
     return _color_palette(colors)
+
+
+def _flyer_direction(design_instruction: str, style: dict[str, Any]) -> dict[str, Any]:
+    profile = style.get("style_profile") if isinstance(style.get("style_profile"), dict) else _style_profile(style)
+    instruction = design_instruction.lower()
+    layout = "structured"
+    if "minimal" in instruction or "clean" in instruction or "simple" in instruction:
+        layout = "minimal"
+    elif "center" in instruction or "bold" in instruction or "big title" in instruction or "poster" in instruction:
+        layout = "bold_center"
+    elif "split" in instruction or "two column" in instruction or "2 column" in instruction:
+        layout = "split"
+    elif "side" in profile.get("accent_structure", ""):
+        layout = "side_rail"
+    elif "header" in profile.get("accent_structure", "") or "footer" in profile.get("accent_structure", ""):
+        layout = "banded"
+
+    if "dark" in instruction or profile.get("background_tone") == "dark":
+        mood = "dark"
+    elif "premium" in instruction or "professional" in instruction:
+        mood = "premium"
+    elif "fun" in instruction or "energetic" in instruction or "vibrant" in instruction:
+        mood = "vibrant"
+    else:
+        mood = "light"
+
+    cta_scale = (
+        "large"
+        if any(word in instruction for word in ["large cta", "bigger cta", "big cta", "highlight cta"])
+        else "normal"
+    )
+    title_scale = (
+        "large"
+        if any(word in instruction for word in ["large title", "bigger title", "big title", "bold title"])
+        else "normal"
+    )
+    density = "compact" if any(word in instruction for word in ["compact", "more details", "dense"]) else "airy"
+    return {
+        "layout": layout,
+        "mood": mood,
+        "cta_scale": cta_scale,
+        "title_scale": title_scale,
+        "density": density,
+        "profile": profile,
+    }
+
+
+def _palette_for_direction(style: dict[str, Any], direction: dict[str, Any]) -> tuple[str, str, str, str, str]:
+    primary, ink, background = _event_palette(style)
+    accent = "#DBEAFE"
+    surface = "#FFFFFF"
+    if direction["mood"] == "dark":
+        background = "#0B1220"
+        surface = "#111827"
+        ink = "#F8FAFC"
+        accent = primary
+    elif direction["mood"] == "premium":
+        background = "#F8FAFC"
+        surface = "#FFFFFF"
+        ink = "#111827"
+        accent = "#E0E7FF"
+    elif direction["mood"] == "vibrant":
+        background = "#F8FAFC"
+        surface = "#FFFFFF"
+        accent = "#FEF3C7"
+    return primary, ink, background, surface, accent
+
+
+def _text_lines(text: str, width: int) -> list[str]:
+    lines: list[str] = []
+    for paragraph in text.splitlines() or [text]:
+        lines.extend(textwrap.wrap(paragraph, width=width) or [""])
+    return lines
+
+
+def _draw_detail_chip(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    label: str,
+    value: str,
+    fonts: tuple[Any, Any],
+    colors: tuple[str, str, str],
+) -> None:
+    label_font, value_font = fonts
+    fill, outline, ink = colors
+    value_ink = "#111827" if fill.upper() in {"#F8FAFC", "#FFFFFF"} else ink
+    draw.rounded_rectangle(box, radius=22, fill=fill, outline=outline)
+    draw.text((box[0] + 22, box[1] + 16), label, fill="#64748B", font=label_font)
+    draw.text((box[0] + 22, box[1] + 48), value[:24], fill=value_ink, font=value_font)
 
 
 def _render_template_flyer(
@@ -619,57 +917,38 @@ def _render_template_flyer(
     campaign: dict[str, Any],
     flyer_path: Path,
     design_instruction: str,
-) -> None:
+) -> dict[str, Any]:
     style = _ensure_style_schema(event.setdefault("style", {}))
     content = campaign.get("content", {})
-    latest_analysis = _latest_style_analysis(style)
-    primary, ink, background = _event_palette(style)
-    soft_panel = "#FFFFFF"
+    style["style_profile"] = _style_profile(style)
+    direction = _flyer_direction(design_instruction, style)
+    profile = direction["profile"]
+    primary, ink, background, soft_panel, accent_fill = _palette_for_direction(style, direction)
     muted = "#64748B"
-    accent_fill = "#DBEAFE"
-    if primary.lower().startswith("#0"):
-        accent_fill = "#D1FAE5"
-    if "premium" in design_instruction.lower():
-        background = "#F8FAFC"
-        soft_panel = "#FFFFFF"
+    outline = "#E2E8F0" if direction["mood"] != "dark" else "#334155"
+    on_primary = "#FFFFFF"
+    on_dark = "#F8FAFC"
 
     width, height = 1080, 1350
     image = Image.new("RGB", (width, height), background)
     draw = ImageDraw.Draw(image)
 
-    draw.rectangle((0, 0, width, 156), fill=ink)
-    draw.rectangle((0, 156, width, 176), fill=primary)
-    draw.ellipse((735, -230, 1245, 280), fill=primary)
-    draw.ellipse((795, -170, 1185, 220), outline=accent_fill, width=18)
-    draw.rounded_rectangle((70, 215, 1010, 1118), radius=38, fill=soft_panel, outline="#E2E8F0", width=3)
-    draw.rectangle((70, 215, 116, 1118), fill=primary)
-    draw.rounded_rectangle((116, 215, 1010, 1118), radius=38, fill=soft_panel)
-
     label_font = _font(26, bold=True)
     meta_font = _font(30)
     detail_font = _font(34, bold=True)
-    title_size = 74 if len(content.get("title", "")) < 48 else 62
+    title_size = 86 if direction["title_scale"] == "large" else 74
+    if len(content.get("title", "")) > 48:
+        title_size -= 12
     title_font = _font(title_size, bold=True)
     subtitle_font = _font(36, bold=True)
     body_font = _font(32)
-    cta_font = _font(42, bold=True)
+    cta_font = _font(50 if direction["cta_scale"] == "large" else 42, bold=True)
     footer_font = _font(25)
-
-    logo_box = (78, 44, 455, 112)
-    draw.rounded_rectangle(logo_box, radius=16, outline=background, width=3)
-    _centered_text(draw, logo_box, event.get("name", "CampaignKernel")[:28], label_font, background)
-    draw.text((780, 60), "READY TO PUBLISH", fill=background, font=label_font)
-
-    y = 255
-    draw.rounded_rectangle((155, y, 400, y + 48), radius=24, fill=accent_fill)
-    _centered_text(draw, (155, y, 400, y + 48), "EVENT CAMPAIGN", label_font, ink)
-    y += 78
-
-    y = _draw_wrapped(draw, content.get("title", "Upcoming Event"), (155, y), title_font, ink, 17, 7)
-    y += 18
-    subtitle = content.get("subtitle", "")
-    y = _draw_wrapped(draw, subtitle, (155, y), subtitle_font, primary, 28, 8)
-    y += 42
+    badge = "EVENT CAMPAIGN"
+    if "workshop" in content.get("title", "").lower() or "workshop" in content.get("key_message", "").lower():
+        badge = "WORKSHOP"
+    elif "webinar" in content.get("key_message", "").lower():
+        badge = "WEBINAR"
 
     detail_boxes = [
         ("DATE", content.get("date", "TBA")),
@@ -677,43 +956,136 @@ def _render_template_flyer(
         ("VENUE", content.get("venue", "TBA")),
         ("FOR", content.get("audience", "Community audience")),
     ]
-    box_x = 155
-    for index, (label, value) in enumerate(detail_boxes):
-        row = index // 2
-        col = index % 2
-        x = box_x + col * 392
-        detail_y = y + row * 124
-        draw.rounded_rectangle((x, detail_y, x + 348, detail_y + 92), radius=22, fill="#F8FAFC", outline="#E2E8F0")
-        draw.text((x + 24, detail_y + 18), label, fill=muted, font=label_font)
-        draw.text((x + 24, detail_y + 48), value[:23], fill=ink, font=detail_font)
-    y += 278
 
-    key_message = content.get("key_message", "")
-    if key_message:
-        y = _draw_wrapped(draw, key_message, (155, y), body_font, ink, 36, 10)
-        y += 28
+    logo_box = (78, 44, 455, 112)
+    if direction["layout"] in {"banded", "side_rail", "structured"}:
+        draw.rectangle((0, 0, width, 156), fill=ink if direction["mood"] != "dark" else "#020617")
+        draw.rectangle((0, 156, width, 176), fill=primary)
+        draw.rounded_rectangle(logo_box, radius=16, outline=background, width=3)
+        _centered_text(draw, logo_box, event.get("name", "CampaignKernel")[:28], label_font, on_dark)
+        draw.text((780, 60), "READY TO PUBLISH", fill=on_dark, font=label_font)
 
-    cta = content.get("cta", "Join us")
-    draw.rounded_rectangle((155, 958, 925, 1065), radius=34, fill=primary)
-    _centered_text(draw, (155, 958, 925, 1065), cta[:44], cta_font, background)
+    if direction["layout"] == "minimal":
+        draw.rectangle((0, 0, width, 18), fill=primary)
+        draw.text((86, 80), event.get("name", "CampaignKernel")[:34], fill=muted, font=label_font)
+        draw.text((86, 150), badge, fill=primary, font=label_font)
+        y = 235
+        y = _draw_wrapped(draw, content.get("title", "Upcoming Event"), (86, y), title_font, ink, 15, 10)
+        y += 22
+        y = _draw_wrapped(draw, content.get("subtitle", ""), (86, y), subtitle_font, primary, 29, 8)
+        y += 54
+        for label, value in detail_boxes:
+            draw.text((86, y), f"{label}: {value}", fill=ink, font=meta_font)
+            y += 48
+        y += 32
+        y = _draw_wrapped(draw, content.get("key_message", ""), (86, y), body_font, ink, 38, 11)
+        cta_box = (86, 1050, 994, 1150) if direction["cta_scale"] == "large" else (86, 1068, 760, 1152)
+        draw.rounded_rectangle(cta_box, radius=24, fill=primary)
+        _centered_text(draw, cta_box, content.get("cta", "Join us")[:44], cta_font, on_primary)
+    elif direction["layout"] == "bold_center":
+        draw.ellipse((-250, -230, 520, 520), fill=primary)
+        draw.ellipse((700, 920, 1270, 1490), fill=accent_fill)
+        draw.rounded_rectangle((250, 96, 830, 156), radius=30, fill=soft_panel, outline=outline)
+        _centered_text(draw, (250, 96, 830, 156), event.get("name", "CampaignKernel")[:36], label_font, ink)
+        draw.rounded_rectangle((372, 238, 708, 290), radius=26, fill=primary)
+        _centered_text(draw, (372, 238, 708, 290), badge, label_font, on_primary)
+        title_lines = _text_lines(content.get("title", "Upcoming Event"), 13)
+        y = 350
+        for line in title_lines[:4]:
+            bbox = draw.textbbox((0, 0), line, font=title_font)
+            draw.text(((width - (bbox[2] - bbox[0])) / 2, y), line, fill=ink, font=title_font)
+            y += bbox[3] - bbox[1] + 12
+        y += 22
+        subtitle_lines = _text_lines(content.get("subtitle", ""), 26)
+        for line in subtitle_lines[:2]:
+            bbox = draw.textbbox((0, 0), line, font=subtitle_font)
+            draw.text(((width - (bbox[2] - bbox[0])) / 2, y), line, fill=primary, font=subtitle_font)
+            y += bbox[3] - bbox[1] + 8
+        y = 760
+        for index, (label, value) in enumerate(detail_boxes[:3]):
+            x = 130 + index * 280
+            _draw_detail_chip(
+                draw, (x, y, x + 240, y + 98), label, value, (label_font, meta_font), ("#F8FAFC", outline, ink)
+            )
+        cta_box = (150, 1048, 930, 1164)
+        draw.rounded_rectangle(cta_box, radius=34, fill=primary)
+        _centered_text(draw, cta_box, content.get("cta", "Join us")[:44], cta_font, on_primary)
+    elif direction["layout"] == "split":
+        draw.rectangle((0, 0, 420, height), fill=ink if direction["mood"] != "dark" else "#020617")
+        draw.rectangle((420, 0, 450, height), fill=primary)
+        draw.text((70, 70), event.get("name", "CampaignKernel")[:24], fill=on_dark, font=label_font)
+        draw.text((70, 180), badge, fill=primary, font=label_font)
+        y = 285
+        y = _draw_wrapped(
+            draw, content.get("title", "Upcoming Event"), (70, y), _font(60, bold=True), background, 10, 8
+        )
+        draw.rounded_rectangle((500, 145, 980, 780), radius=34, fill=soft_panel, outline=outline, width=3)
+        y = 205
+        for label, value in detail_boxes:
+            _draw_detail_chip(
+                draw, (540, y, 940, y + 94), label, value, (label_font, detail_font), ("#F8FAFC", outline, ink)
+            )
+            y += 124
+        y = _draw_wrapped(draw, content.get("key_message", ""), (500, 845), body_font, ink, 28, 11)
+        cta_box = (500, max(1025, y + 30), 980, max(1135, y + 140))
+        draw.rounded_rectangle(cta_box, radius=30, fill=primary)
+        _centered_text(draw, cta_box, content.get("cta", "Join us")[:34], cta_font, on_primary)
+    else:
+        if direction["layout"] == "side_rail":
+            draw.rectangle((0, 176, 92, 1188), fill=primary)
+            panel = (126, 230, 1010, 1118)
+        else:
+            draw.ellipse((735, -230, 1245, 280), fill=primary)
+            draw.ellipse((795, -170, 1185, 220), outline=accent_fill, width=18)
+            panel = (70, 215, 1010, 1118)
+            if direction["layout"] == "banded":
+                draw.rectangle((0, 1160, width, height), fill=ink if direction["mood"] != "dark" else "#020617")
+        draw.rounded_rectangle(panel, radius=38, fill=soft_panel, outline=outline, width=3)
+        if direction["layout"] != "side_rail":
+            draw.rectangle((panel[0], panel[1], panel[0] + 46, panel[3]), fill=primary)
+            draw.rounded_rectangle((panel[0] + 46, panel[1], panel[2], panel[3]), radius=38, fill=soft_panel)
+        x0 = panel[0] + 85
+        y = panel[1] + 40
+        draw.rounded_rectangle((x0, y, x0 + 245, y + 48), radius=24, fill=accent_fill)
+        _centered_text(draw, (x0, y, x0 + 245, y + 48), badge, label_font, ink)
+        y += 78
+        y = _draw_wrapped(draw, content.get("title", "Upcoming Event"), (x0, y), title_font, ink, 17, 7)
+        y += 18
+        y = _draw_wrapped(draw, content.get("subtitle", ""), (x0, y), subtitle_font, primary, 28, 8)
+        y += 42
+        for index, (label, value) in enumerate(detail_boxes):
+            row = index // 2
+            col = index % 2
+            x = x0 + col * 392
+            detail_y = y + row * 124
+            _draw_detail_chip(
+                draw,
+                (x, detail_y, x + 348, detail_y + 92),
+                label,
+                value,
+                (label_font, detail_font),
+                ("#F8FAFC", outline, ink),
+            )
+        y += 278
+        if content.get("key_message"):
+            y = _draw_wrapped(draw, content.get("key_message", ""), (x0, y), body_font, ink, 34, 10)
+        cta_height = 126 if direction["cta_scale"] == "large" else 104
+        cta_box = (x0, min(990, y + 38), panel[2] - 85, min(990, y + 38) + cta_height)
+        draw.rounded_rectangle(cta_box, radius=34, fill=primary)
+        _centered_text(draw, cta_box, content.get("cta", "Join us")[:44], cta_font, on_primary)
 
-    analysis_line = ""
-    if latest_analysis:
-        analysis_line = latest_analysis.get("layout") or latest_analysis.get("summary", "")
-    if design_instruction:
-        analysis_line = design_instruction.strip()
-    if analysis_line:
-        draw.text((155, 1082), analysis_line[:78], fill=muted, font=footer_font)
-
-    draw.rectangle((0, 1196, width, height), fill=ink)
+    if direction["layout"] not in {"split"}:
+        footer_fill = ink if direction["mood"] != "dark" else "#020617"
+        draw.rectangle((0, 1196, width, height), fill=footer_fill)
     footer_lines = [
-        content.get("contact", "") or "Generated by CampaignKernel",
-        "Review the flyer and caption before publishing.",
+        content.get("contact", "") or event.get("name", "CampaignKernel"),
+        f"Style learned from {profile.get('sample_count', 0)} sample(s): {profile.get('accent_structure', 'event style')}",
     ]
     for index, line in enumerate(footer_lines):
-        draw.text((74, 1244 + index * 42), line[:96], fill=background, font=footer_font)
+        draw.text((74, 1244 + index * 42), line[:96], fill=on_dark, font=footer_font)
 
     image.save(flyer_path)
+    return direction
 
 
 def _fit_image_to_canvas(source_bytes: bytes, flyer_path: Path) -> None:
@@ -737,7 +1109,7 @@ def _fit_image_to_canvas(source_bytes: bytes, flyer_path: Path) -> None:
 def _image_prompt(event: dict[str, Any], campaign: dict[str, Any], design_instruction: str) -> str:
     style = _ensure_style_schema(event.setdefault("style", {}))
     content = campaign.get("content", {})
-    latest = _latest_style_analysis(style)
+    profile = style.get("style_profile") if isinstance(style.get("style_profile"), dict) else _style_profile(style)
     return "\n".join(
         [
             "Create a polished vertical event flyer for social media.",
@@ -747,7 +1119,7 @@ def _image_prompt(event: dict[str, Any], campaign: dict[str, Any], design_instru
             f"Venue: {content.get('venue', '')}",
             f"CTA: {content.get('cta', '')}",
             f"Theme: {style.get('theme_notes', '')}",
-            f"Sample style: {latest}",
+            f"Sample style profile: {profile}",
             f"Design direction: {design_instruction}",
             "Use readable text hierarchy, strong contrast, clean spacing, and leave room for logos.",
         ]
@@ -800,14 +1172,15 @@ def generate_flyer(event_id: str, campaign_id: str, design_instruction: str = ""
     requested_mode = os.environ.get(IMAGE_MODE_ENV, "template").strip().lower()
     mode = "template"
     fallback_reason = ""
+    applied_direction = _flyer_direction(design_instruction, _ensure_style_schema(event.setdefault("style", {})))
     if requested_mode == "ai":
         fallback_reason = _try_ai_flyer(event, campaign, flyer_path, design_instruction)
         if fallback_reason:
-            _render_template_flyer(event, campaign, flyer_path, design_instruction)
+            applied_direction = _render_template_flyer(event, campaign, flyer_path, design_instruction)
         else:
             mode = "ai"
     else:
-        _render_template_flyer(event, campaign, flyer_path, design_instruction)
+        applied_direction = _render_template_flyer(event, campaign, flyer_path, design_instruction)
 
     campaign["flyer"] = {
         "path": str(flyer_path),
@@ -816,6 +1189,14 @@ def generate_flyer(event_id: str, campaign_id: str, design_instruction: str = ""
         "mode": mode,
         "requested_mode": requested_mode or "template",
         "fallback_reason": fallback_reason,
+        "applied_direction": {
+            "layout": applied_direction.get("layout"),
+            "mood": applied_direction.get("mood"),
+            "cta_scale": applied_direction.get("cta_scale"),
+            "title_scale": applied_direction.get("title_scale"),
+            "density": applied_direction.get("density"),
+        },
+        "style_profile_used": applied_direction.get("profile", {}),
         "generated_at": _now(),
     }
     campaign["flyer_mode"] = mode
@@ -849,6 +1230,161 @@ def approve_flyer(event_id: str, campaign_id: str) -> str:
     return _json({"ok": True, "campaign": campaign})
 
 
+def _caption_direction(user_direction: str) -> dict[str, Any]:
+    lower = user_direction.lower()
+    return {
+        "length": "short" if any(word in lower for word in ["short", "shorter", "concise", "brief"]) else "standard",
+        "tone": (
+            "professional"
+            if any(word in lower for word in ["professional", "formal", "linkedin", "corporate"])
+            else (
+                "energetic"
+                if any(word in lower for word in ["exciting", "energetic", "hype", "catchy", "bold"])
+                else "friendly" if any(word in lower for word in ["friendly", "warm", "casual"]) else "event"
+            )
+        ),
+        "urgency": any(word in lower for word in ["urgent", "limited", "last chance", "deadline", "today"]),
+        "no_hashtags": any(word in lower for word in ["no hashtag", "without hashtag", "remove hashtag"]),
+        "more_details": any(word in lower for word in ["more detail", "detailed", "include time", "include audience"]),
+    }
+
+
+def _caption_hook(title: str, event_name: str, cta: str, direction: dict[str, Any], profile: dict[str, Any]) -> str:
+    if direction["tone"] == "professional":
+        return f"{event_name} invites you to {title}."
+    if direction["tone"] == "energetic":
+        if profile.get("caption_hook_style") == "question hook":
+            return f"Ready for {title}?"
+        return f"{title} is here."
+    if direction["tone"] == "friendly":
+        return f"Come join us for {title}."
+    if profile.get("caption_hook_style") == "formal announcement hook":
+        return f"We are excited to announce {title}."
+    if profile.get("caption_hook_style") == "question hook":
+        return f"Ready for {title}?"
+    if cta.lower().startswith(("register", "join", "apply")):
+        return f"{cta}: {title}."
+    return f"{title} is here."
+
+
+def _caption_lines_for_details(content: dict[str, str], direction: dict[str, Any]) -> list[str]:
+    lines = [f"Date: {content.get('date', 'TBA')}", f"Venue: {content.get('venue', 'TBA')}"]
+    if direction["more_details"] or content.get("time"):
+        lines.insert(1, f"Time: {content.get('time', 'TBA') or 'TBA'}")
+    if direction["more_details"]:
+        lines.append(f"For: {content.get('audience', 'Community audience')}")
+    return lines
+
+
+def _compose_caption_pack(event: dict[str, Any], campaign: dict[str, Any], user_direction: str = "") -> dict[str, Any]:
+    style = _ensure_style_schema(event.setdefault("style", {}))
+    style["style_profile"] = _style_profile(style)
+    profile = style["style_profile"]
+    content = campaign.get("content", {})
+    hashtags = style.get("default_hashtags", []) or ["#Event", "#Community", "#CampaignKernel"]
+    direction = _caption_direction(user_direction)
+    if direction["no_hashtags"]:
+        hashtags = []
+
+    hashtag_line = " ".join(hashtags[:12])
+    title = content.get("title", "Upcoming Event")
+    date = content.get("date", "TBA")
+    venue = content.get("venue", "TBA")
+    cta = content.get("cta", "Join us")
+    event_name = event.get("name", "CampaignKernel")
+    tone = style.get("tone", "clear and energetic")
+    caption_structure = style.get("caption_structure", "Hook, event details, CTA, hashtags")
+    hook = _caption_hook(title, event_name, cta, direction, profile)
+    detail_lines = _caption_lines_for_details(content, direction)
+    urgency = "\nSeats are limited, so confirm your spot early." if direction["urgency"] else ""
+    value_line = content.get("key_message", "").strip()
+
+    if direction["length"] == "short":
+        instagram_parts = [hook, *detail_lines[:2], cta]
+        facebook_parts = [hook, f"{date} at {venue}.", cta]
+        linkedin_parts = [f"{event_name}: {title}", f"{date} at {venue}.", cta]
+    elif direction["tone"] == "professional":
+        instagram_parts = [hook, value_line, *detail_lines, cta]
+        facebook_parts = [
+            hook,
+            value_line,
+            *detail_lines,
+            f"Audience: {content.get('audience', 'Community audience')}",
+            cta,
+        ]
+        linkedin_parts = [
+            f"{event_name} presents {title}.",
+            value_line,
+            "This campaign follows the saved event communication style and keeps the approval-ready details clear.",
+            *detail_lines,
+            cta,
+        ]
+    elif direction["tone"] == "energetic":
+        instagram_parts = [
+            hook,
+            "A focused session for students ready to build, learn, and move fast.",
+            *detail_lines,
+            cta,
+        ]
+        facebook_parts = [
+            hook,
+            value_line,
+            "Bring your curiosity and get ready for a practical event experience.",
+            *detail_lines,
+            cta,
+        ]
+        linkedin_parts = [f"{event_name} presents {title}.", value_line, *detail_lines, cta]
+    else:
+        instagram_parts = [hook, *detail_lines, cta]
+        facebook_parts = [
+            hook,
+            value_line,
+            *detail_lines,
+            f"Audience: {content.get('audience', 'Community audience')}",
+            cta,
+        ]
+        linkedin_parts = [
+            f"{event_name} presents {title}.",
+            f"Prepared in a {tone} style using the event structure: {caption_structure}.",
+            *detail_lines,
+            cta,
+        ]
+
+    def join_parts(parts: list[str], include_hashtags: bool = True) -> str:
+        clean_parts = [part for part in parts if part]
+        text = "\n\n".join(clean_parts) + urgency
+        if include_hashtags and hashtag_line:
+            text = (
+                f"{text}\n\n{hashtag_line}"
+                if profile.get("caption_hashtag_footer", True)
+                else f"{hashtag_line}\n\n{text}"
+            )
+        return text.strip()
+
+    whatsapp = f"{title}\nDate: {date}\nVenue: {venue}\n{cta}"
+    if direction["more_details"] and content.get("time"):
+        whatsapp = f"{title}\nDate: {date}\nTime: {content.get('time')}\nVenue: {venue}\n{cta}"
+
+    return {
+        "instagram": join_parts(instagram_parts),
+        "facebook": join_parts(facebook_parts),
+        "linkedin": join_parts(linkedin_parts, include_hashtags=False),
+        "whatsapp_export": whatsapp,
+        "hashtags": hashtags,
+        "alt_text": (
+            f"Event flyer for {title}. It announces the event date as {date}, venue as {venue}, "
+            f"and call to action as {cta}."
+        ),
+        "style_used": {
+            "tone": tone,
+            "caption_structure": caption_structure,
+            "sample_style": profile,
+            "direction": direction,
+        },
+        "generated_at": _now(),
+    }
+
+
 def generate_caption_pack(event_id: str, campaign_id: str, user_direction: str = "") -> str:
     """Generate Instagram, Facebook, LinkedIn, and WhatsApp-ready captions."""
     state = _load_state()
@@ -857,56 +1393,7 @@ def generate_caption_pack(event_id: str, campaign_id: str, user_direction: str =
     if not campaign.get("approvals", {}).get("flyer"):
         return _json({"ok": False, "blocked": True, "reason": "Approve the flyer before generating captions."})
 
-    style = _ensure_style_schema(event.setdefault("style", {}))
-    content = campaign.get("content", {})
-    hashtags = style.get("default_hashtags", []) or ["#Event", "#Community", "#CampaignKernel"]
-    hashtag_line = " ".join(hashtags[:12])
-    title = content.get("title", "Upcoming Event")
-    date = content.get("date", "TBA")
-    venue = content.get("venue", "TBA")
-    cta = content.get("cta", "Join us")
-    tone = style.get("tone", "clear and energetic")
-    caption_structure = style.get("caption_structure", "Hook, event details, CTA, hashtags")
-    sample = (
-        "\n\nStyle reference: " + style.get("sample_captions", [""])[-1][:180] if style.get("sample_captions") else ""
-    )
-    sample_analysis = _latest_style_analysis(style)
-    if sample_analysis and not sample:
-        sample = "\n\nStyle reference: " + (sample_analysis.get("hierarchy") or sample_analysis.get("layout", ""))[:180]
-    direction = f"\nDirection: {user_direction.strip()}" if user_direction.strip() else ""
-
-    instagram = f"{title} is here.\n\n" f"Date: {date}\nVenue: {venue}\n\n" f"{cta}.\n\n{hashtag_line}"
-    facebook = (
-        f"We are excited to announce {title}.\n\n"
-        f"{content.get('key_message', '').strip()}\n\n"
-        f"Date: {date}\nVenue: {venue}\nAudience: {content.get('audience', 'Community audience')}\n\n"
-        f"{cta}."
-    )
-    linkedin = (
-        f"{event['name']} presents {title}.\n\n"
-        f"This campaign is prepared in a {tone} style and follows the structure: {caption_structure}.\n\n"
-        f"Date: {date}\nVenue: {venue}\n\n{cta}."
-    )
-    whatsapp = f"{title}\nDate: {date}\nVenue: {venue}\n{cta}"
-    alt_text = (
-        f"Event flyer for {title}. It announces the event date as {date}, venue as {venue}, "
-        f"and call to action as {cta}."
-    )
-
-    campaign["caption_pack"] = {
-        "instagram": instagram + direction,
-        "facebook": facebook + sample + direction,
-        "linkedin": linkedin + direction,
-        "whatsapp_export": whatsapp,
-        "hashtags": hashtags,
-        "alt_text": alt_text,
-        "style_used": {
-            "tone": tone,
-            "caption_structure": caption_structure,
-            "sample_style": sample_analysis,
-        },
-        "generated_at": _now(),
-    }
+    campaign["caption_pack"] = _compose_caption_pack(event, campaign, user_direction)
     campaign["approvals"]["caption"] = False
     campaign["status"] = "caption_draft"
     campaign["latest_user_action"] = "captions generated"
@@ -920,7 +1407,7 @@ def generate_caption_pack(event_id: str, campaign_id: str, user_direction: str =
 
 
 def edit_caption_pack(event_id: str, campaign_id: str, edit_instruction: str) -> str:
-    """Apply simple user edit notes to the caption pack."""
+    """Regenerate the caption pack according to user edit notes."""
     state = _load_state()
     event = _get_event(state, event_id)
     campaign = _get_campaign(event, campaign_id)
@@ -928,14 +1415,8 @@ def edit_caption_pack(event_id: str, campaign_id: str, edit_instruction: str) ->
         return _json({"ok": False, "blocked": True, "reason": "Generate captions before editing them."})
 
     note = edit_instruction.strip()
-    if "shorter" in note.lower():
-        for platform in ["instagram", "facebook", "linkedin"]:
-            text = campaign["caption_pack"].get(platform, "")
-            campaign["caption_pack"][platform] = "\n".join(text.splitlines()[:6]).strip()
-    else:
-        campaign["caption_pack"]["editor_notes"] = (
-            campaign["caption_pack"].get("editor_notes", "") + "\n" + note
-        ).strip()
+    campaign["caption_pack"] = _compose_caption_pack(event, campaign, note)
+    campaign["caption_pack"]["editor_notes"] = note
 
     campaign["approvals"]["caption"] = False
     campaign["status"] = "caption_draft"

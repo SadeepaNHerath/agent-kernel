@@ -148,6 +148,8 @@ Upload one or more sample flyer images/PDFs with this caption:
 sample for ck-idealize-ai-workshop
 ```
 
+CampaignKernel builds an event style profile across all samples, including layout, palette, background tone, accent structure, CTA style, caption hook pattern, and recurring hashtags.
+
 Then send:
 
 ```text
@@ -159,7 +161,9 @@ From there, use the buttons:
 - `Approve Content`
 - `Generate Flyer`
 - Review the flyer image sent in chat, then `Approve Flyer` or `Regenerate`
+- For visual edits, send natural directions such as `/generate_flyer make it minimal with more whitespace` or `/generate_flyer dark bold centered poster with a larger CTA`
 - `Generate Captions`
+- For caption edits, send `/edit make it shorter and more professional` or `/edit make it more energetic, no hashtags`
 - `Approve Caption`
 - `Approve Campaign`
 - `Publish IG/FB/LinkedIn` or `WhatsApp Export`
