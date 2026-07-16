@@ -13,12 +13,19 @@ from tool import (
     draft_flyer_content,
     edit_caption_pack,
     edit_flyer_content,
+    enrich_campaign_intelligence,
+    generate_campaign_impact_report,
     generate_caption_pack,
     generate_flyer,
+    generate_one_click_campaign_pack,
     get_campaign_status,
     get_event_context,
+    get_impact_dashboard,
     ingest_direct_campaign_assets,
     publish_campaign,
+    save_organization_profile,
+    save_partner_memory,
+    schedule_campaign,
     update_event_context,
 )
 
@@ -35,6 +42,13 @@ CAMPAIGN_TOOLS = [
     generate_caption_pack,
     edit_caption_pack,
     approve_caption_pack,
+    enrich_campaign_intelligence,
+    generate_one_click_campaign_pack,
+    generate_campaign_impact_report,
+    get_impact_dashboard,
+    schedule_campaign,
+    save_organization_profile,
+    save_partner_memory,
     ingest_direct_campaign_assets,
     approve_campaign_package,
     publish_campaign,
@@ -114,6 +128,40 @@ publisher_agent = Agent(
     tools=OpenAIToolBuilder.bind([publish_campaign, get_campaign_status]),
 )
 
+campaign_strategy_agent = Agent(
+    name="campaign_strategy_agent",
+    model=CAMPAIGN_MODEL,
+    handoff_description="Adds SDG alignment, impact goals, campaign strategy, CTAs, variants, and quality scoring.",
+    instructions=(
+        "Use campaign intelligence tools to classify SDGs, generate measurable impact goals, optimize CTAs, "
+        "create audience/platform variants, check accessibility, and produce a campaign quality score. Keep advice "
+        "specific to the saved event context and approved campaign materials."
+    ),
+    tools=OpenAIToolBuilder.bind(
+        [
+            enrich_campaign_intelligence,
+            generate_one_click_campaign_pack,
+            generate_campaign_impact_report,
+            get_impact_dashboard,
+            schedule_campaign,
+            get_campaign_status,
+        ]
+    ),
+)
+
+campaign_memory_agent = Agent(
+    name="campaign_memory_agent",
+    model=CAMPAIGN_MODEL,
+    handoff_description="Maintains organization and partner memory used by campaign generation and reporting.",
+    instructions=(
+        "Save reusable organization and partner context such as brand colors, tone, recurring hashtags, preferred "
+        "SDGs, sponsor wording, and logo usage. Prefer updating memory over repeating the same context each campaign."
+    ),
+    tools=OpenAIToolBuilder.bind(
+        [save_organization_profile, save_partner_memory, get_event_context, get_impact_dashboard]
+    ),
+)
+
 campaign_director = Agent(
     name="campaign_director",
     model=CAMPAIGN_MODEL,
@@ -123,7 +171,8 @@ campaign_director = Agent(
         "flyer content, content approval, flyer generation, flyer approval, caption generation, caption approval, "
         "final approval, then publish/export. Use tools for all state changes. If a user already has a designer or "
         "editor, use ingest_direct_campaign_assets to package their supplied flyer or caption. Keep responses concise "
-        "for Telegram and show the next command."
+        "for Telegram and show the next command. For demos, use generate_one_click_campaign_pack to turn a rough brief "
+        "into a flyer, caption pack, SDG intelligence, impact goals, and quality score quickly."
     ),
     handoffs=[
         event_context_agent,
@@ -132,6 +181,8 @@ campaign_director = Agent(
         caption_agent,
         approval_agent,
         publisher_agent,
+        campaign_strategy_agent,
+        campaign_memory_agent,
     ],
     tools=OpenAIToolBuilder.bind(CAMPAIGN_TOOLS),
 )
@@ -144,4 +195,6 @@ AGENTS = [
     caption_agent,
     approval_agent,
     publisher_agent,
+    campaign_strategy_agent,
+    campaign_memory_agent,
 ]

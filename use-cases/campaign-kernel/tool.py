@@ -34,6 +34,114 @@ OUTPUT_DIR = "output"
 REQUIRED_CONTENT_FIELDS = ["date", "venue", "cta"]
 UNSAFE_TERMS = {"hate", "violence", "weapon", "illegal drugs", "scam", "fake certificate"}
 
+SDG_DEFINITIONS = [
+    {
+        "id": 1,
+        "name": "No Poverty",
+        "keywords": ["poverty", "donation", "relief", "low income", "fundraiser", "food drive", "livelihood"],
+        "template": "community support",
+    },
+    {
+        "id": 2,
+        "name": "Zero Hunger",
+        "keywords": ["hunger", "food", "nutrition", "meal", "agriculture", "food security"],
+        "template": "relief and nutrition",
+    },
+    {
+        "id": 3,
+        "name": "Good Health and Well-being",
+        "keywords": ["health", "medical", "wellbeing", "well-being", "mental health", "blood", "clinic", "fitness"],
+        "template": "health awareness",
+    },
+    {
+        "id": 4,
+        "name": "Quality Education",
+        "keywords": ["education", "workshop", "training", "students", "school", "university", "learning", "ai"],
+        "template": "learning and upskilling",
+    },
+    {
+        "id": 5,
+        "name": "Gender Equality",
+        "keywords": ["gender", "women", "girls", "equality", "inclusion", "female", "empowerment"],
+        "template": "inclusive empowerment",
+    },
+    {
+        "id": 6,
+        "name": "Clean Water and Sanitation",
+        "keywords": ["water", "sanitation", "hygiene", "wash", "clean water"],
+        "template": "public health action",
+    },
+    {
+        "id": 7,
+        "name": "Affordable and Clean Energy",
+        "keywords": ["energy", "solar", "renewable", "electricity", "clean energy"],
+        "template": "innovation and sustainability",
+    },
+    {
+        "id": 8,
+        "name": "Decent Work and Economic Growth",
+        "keywords": ["career", "jobs", "entrepreneur", "startup", "skills", "employment", "internship"],
+        "template": "career growth",
+    },
+    {
+        "id": 9,
+        "name": "Industry, Innovation and Infrastructure",
+        "keywords": ["innovation", "technology", "tech", "ai", "infrastructure", "engineering", "hackathon"],
+        "template": "innovation showcase",
+    },
+    {
+        "id": 10,
+        "name": "Reduced Inequalities",
+        "keywords": ["inequality", "access", "disabled", "disability", "inclusive", "rural", "marginalized"],
+        "template": "access and inclusion",
+    },
+    {
+        "id": 11,
+        "name": "Sustainable Cities and Communities",
+        "keywords": ["city", "community", "transport", "urban", "sustainable community"],
+        "template": "community action",
+    },
+    {
+        "id": 12,
+        "name": "Responsible Consumption and Production",
+        "keywords": ["recycling", "recycle", "waste", "plastic", "reuse", "sustainable consumption"],
+        "template": "recycling and responsible action",
+    },
+    {
+        "id": 13,
+        "name": "Climate Action",
+        "keywords": ["climate", "cleanup", "clean-up", "tree", "environment", "carbon", "green", "sustainability"],
+        "template": "climate action",
+    },
+    {
+        "id": 14,
+        "name": "Life Below Water",
+        "keywords": ["ocean", "marine", "beach", "river", "sea", "waterway"],
+        "template": "marine protection",
+    },
+    {
+        "id": 15,
+        "name": "Life on Land",
+        "keywords": ["forest", "wildlife", "biodiversity", "tree planting", "land", "nature"],
+        "template": "nature protection",
+    },
+    {
+        "id": 16,
+        "name": "Peace, Justice and Strong Institutions",
+        "keywords": ["peace", "justice", "rights", "governance", "legal", "civic"],
+        "template": "civic awareness",
+    },
+    {
+        "id": 17,
+        "name": "Partnerships for the Goals",
+        "keywords": ["partner", "sponsor", "collaboration", "coalition", "ngo", "aiesec"],
+        "template": "partnership campaign",
+    },
+]
+
+AUDIENCE_SEGMENTS = ["students", "parents", "donors", "volunteers", "companies", "community"]
+PLATFORM_TARGETS = ["instagram", "facebook", "linkedin", "whatsapp", "email", "poster"]
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
@@ -58,6 +166,9 @@ def _load_state() -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as handle:
         state = json.load(handle)
     state.setdefault("events", {})
+    state.setdefault("calendar", [])
+    state.setdefault("organization_profile", {})
+    state.setdefault("partners", [])
     state.setdefault("version", 1)
     return state
 
@@ -190,6 +301,334 @@ def _normalize_targets(targets: str) -> list[str]:
     target_list = [target.lower().strip() for target in re.split(r"[\s,]+", targets) if target.strip()]
     allowed = {"instagram", "facebook", "linkedin", "whatsapp"}
     return [target for target in dict.fromkeys(target_list) if target in allowed]
+
+
+def _content_text(event: dict[str, Any], campaign: dict[str, Any]) -> str:
+    content = campaign.get("content", {})
+    style = event.get("style", {})
+    return " ".join(
+        [
+            event.get("name", ""),
+            campaign.get("brief", ""),
+            " ".join(str(value) for value in content.values()),
+            style.get("theme_notes", ""),
+            " ".join(style.get("sample_captions", [])),
+        ]
+    )
+
+
+def _classify_sdgs(text: str, preferred_sdgs: list[int] | None = None) -> list[dict[str, Any]]:
+    lowered = text.lower()
+    preferred_sdgs = preferred_sdgs or []
+    matches = []
+    for definition in SDG_DEFINITIONS:
+        matched_keywords = [keyword for keyword in definition["keywords"] if keyword in lowered]
+        if definition["id"] in preferred_sdgs:
+            matched_keywords.append("organization preference")
+        if matched_keywords:
+            score = min(100, 45 + len(set(matched_keywords)) * 15)
+            matches.append(
+                {
+                    "id": definition["id"],
+                    "name": definition["name"],
+                    "score": score,
+                    "template": definition["template"],
+                    "matched_keywords": list(dict.fromkeys(matched_keywords))[:8],
+                    "reason": f"Matches {definition['template']} signals: "
+                    + ", ".join(list(dict.fromkeys(matched_keywords))[:5]),
+                }
+            )
+    if not matches:
+        matches.append(
+            {
+                "id": 17,
+                "name": "Partnerships for the Goals",
+                "score": 45,
+                "template": "partnership campaign",
+                "matched_keywords": ["general campaign"],
+                "reason": "General community campaign with partnership potential.",
+            }
+        )
+    return sorted(matches, key=lambda item: (-item["score"], item["id"]))[:3]
+
+
+def _primary_sdg(sdgs: list[dict[str, Any]]) -> dict[str, Any]:
+    return sdgs[0] if sdgs else {"id": 17, "name": "Partnerships for the Goals", "template": "partnership campaign"}
+
+
+def _sdg_badges(sdgs: list[dict[str, Any]]) -> list[str]:
+    return [f"SDG {sdg['id']}: {sdg['name']}" for sdg in sdgs[:3]]
+
+
+def _impact_goals(content: dict[str, Any], sdgs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    audience = content.get("audience", "Community audience")
+    primary = _primary_sdg(sdgs)
+    base_participants = 80 if "student" in audience.lower() else 50
+    if primary["id"] in {3, 4, 8, 9}:
+        base_participants += 40
+    if primary["id"] in {12, 13, 14, 15}:
+        return [
+            {"metric": "volunteers", "target": 40, "why": "Enough people for visible community action."},
+            {"metric": "waste_collected_or_actions", "target": 120, "why": "Track practical environmental impact."},
+            {"metric": "social_reach", "target": 2500, "why": "Extend awareness beyond the event site."},
+            {"metric": "partner_groups", "target": 3, "why": "Strengthen local SDG collaboration."},
+        ]
+    if primary["id"] in {1, 2}:
+        return [
+            {"metric": "donations_or_items", "target": 200, "why": "Make support measurable."},
+            {"metric": "beneficiaries", "target": 75, "why": "Connect effort to people reached."},
+            {"metric": "volunteers", "target": 25, "why": "Support collection and distribution."},
+            {"metric": "social_reach", "target": 2000, "why": "Increase donor participation."},
+        ]
+    return [
+        {"metric": "participants", "target": base_participants, "why": "Anchor the event around attendance."},
+        {
+            "metric": "signups",
+            "target": max(40, base_participants // 2),
+            "why": "Track conversion from campaign to action.",
+        },
+        {"metric": "volunteers", "target": 12, "why": "Ensure event operations are supported."},
+        {"metric": "social_reach", "target": 3000, "why": "Measure awareness created by the campaign."},
+    ]
+
+
+def _optimized_ctas(content: dict[str, Any], sdgs: list[dict[str, Any]]) -> list[str]:
+    primary = _primary_sdg(sdgs)
+    title = content.get("title", "this campaign")
+    if primary["id"] in {12, 13, 14, 15}:
+        return ["Join the cleanup", "Volunteer for climate action", "Share this with your green team"]
+    if primary["id"] in {1, 2}:
+        return ["Donate today", "Contribute a care pack", "Volunteer for distribution"]
+    if primary["id"] in {3}:
+        return ["Register for the session", "Book your awareness slot", "Share with someone who needs this"]
+    if primary["id"] in {4, 8, 9}:
+        return [
+            content.get("cta") or "Register now",
+            f"Save your seat for {title}",
+            "Share with a friend who wants to learn",
+        ]
+    return [content.get("cta") or "Join us", "Volunteer with the team", "Share the campaign"]
+
+
+def _strategy(event: dict[str, Any], campaign: dict[str, Any], sdgs: list[dict[str, Any]]) -> dict[str, Any]:
+    content = campaign.get("content", {})
+    primary = _primary_sdg(sdgs)
+    audience = content.get("audience", "community members")
+    channels = ["Instagram", "WhatsApp"]
+    if primary["id"] in {4, 8, 9, 17}:
+        channels.append("LinkedIn")
+    if primary["id"] in {1, 2, 3, 11, 13}:
+        channels.append("Facebook")
+    return {
+        "angle": f"Position {content.get('title', 'the campaign')} as a {primary['template']} campaign tied to {primary['name']}.",
+        "primary_audience": audience,
+        "secondary_audiences": ["volunteers", "partners", "community members"],
+        "recommended_channels": list(dict.fromkeys(channels)),
+        "timeline": [
+            "T-7 days: publish awareness post and WhatsApp teaser.",
+            "T-3 days: share reminder with impact goal and CTA.",
+            "T-1 day: publish final reminder and logistics.",
+            "T+1 day: share impact report and thank partners.",
+        ],
+        "cta_focus": _optimized_ctas(content, sdgs)[0],
+    }
+
+
+def _contrast_ratio(hex_a: str, hex_b: str) -> float:
+    def parse(hex_value: str) -> tuple[float, float, float]:
+        match = re.search(r"#[0-9a-fA-F]{6}", hex_value or "")
+        value = match.group(0).lstrip("#") if match else "1D4ED8"
+        channels = [int(value[i : i + 2], 16) / 255 for i in (0, 2, 4)]
+        linear = []
+        for channel in channels:
+            linear.append(channel / 12.92 if channel <= 0.03928 else ((channel + 0.055) / 1.055) ** 2.4)
+        return linear[0], linear[1], linear[2]
+
+    a = parse(hex_a)
+    b = parse(hex_b)
+    lum_a = 0.2126 * a[0] + 0.7152 * a[1] + 0.0722 * a[2]
+    lum_b = 0.2126 * b[0] + 0.7152 * b[1] + 0.0722 * b[2]
+    light = max(lum_a, lum_b)
+    dark = min(lum_a, lum_b)
+    return round((light + 0.05) / (dark + 0.05), 2)
+
+
+def _accessibility_check(
+    event: dict[str, Any], campaign: dict[str, Any], caption_pack: dict[str, Any]
+) -> dict[str, Any]:
+    content = campaign.get("content", {})
+    style = _ensure_style_schema(event.setdefault("style", {}))
+    primary, _ink, background = _event_palette(style)
+    contrast = _contrast_ratio(primary, background)
+    title = content.get("title", "")
+    alt_text = caption_pack.get("alt_text", "")
+    issues = []
+    if len(title) > 72:
+        issues.append("Flyer title may be too long for mobile readability.")
+    if not alt_text:
+        issues.append("Alt text is missing.")
+    if contrast < 3:
+        issues.append("Primary color contrast may be weak.")
+    combined_caption = " ".join(
+        str(caption_pack.get(platform, "")) for platform in ["instagram", "facebook", "linkedin"]
+    )
+    if re.search(r"\b(everyone|all people|guaranteed|cure|instant)\b", combined_caption, flags=re.IGNORECASE):
+        issues.append("Caption contains absolute wording that should be reviewed.")
+    score = max(0, 100 - len(issues) * 18)
+    return {
+        "score": score,
+        "contrast_ratio": contrast,
+        "alt_text_present": bool(alt_text),
+        "title_length": len(title),
+        "inclusive_language": "review" if issues else "ok",
+        "issues": issues,
+        "checks": [
+            "Readable title length",
+            "Alt text",
+            "Basic color contrast",
+            "Inclusive/non-exaggerated wording",
+        ],
+    }
+
+
+def _quality_score(
+    content: dict[str, Any],
+    sdgs: list[dict[str, Any]],
+    goals: list[dict[str, Any]],
+    accessibility: dict[str, Any],
+    caption_pack: dict[str, Any],
+) -> dict[str, Any]:
+    clarity = 100 - len(_missing_fields(content)) * 20
+    sdg_alignment = min(100, _primary_sdg(sdgs).get("score", 50))
+    cta_strength = 90 if content.get("cta") else 45
+    accessibility_score = accessibility.get("score", 70)
+    platform_readiness = 25 * sum(
+        1 for key in ["instagram", "facebook", "linkedin", "whatsapp_export"] if caption_pack.get(key)
+    )
+    impact = 100 if goals else 40
+    dimensions = {
+        "clarity": clarity,
+        "sdg_alignment": sdg_alignment,
+        "cta_strength": cta_strength,
+        "accessibility": accessibility_score,
+        "platform_readiness": platform_readiness,
+        "impact_goals": impact,
+    }
+    total = round(sum(dimensions.values()) / len(dimensions))
+    return {
+        "score": total,
+        "grade": "A" if total >= 85 else "B" if total >= 70 else "C" if total >= 55 else "Needs work",
+        "dimensions": dimensions,
+        "recommendations": [
+            "Add a measurable impact target." if impact < 100 else "Impact target is clear.",
+            "Strengthen the CTA." if cta_strength < 80 else "CTA is action-oriented.",
+            "Review accessibility issues." if accessibility_score < 85 else "Accessibility checks look healthy.",
+        ],
+    }
+
+
+def _localized_captions(content: dict[str, Any], caption_pack: dict[str, Any]) -> dict[str, str]:
+    title = content.get("title", "Upcoming Event")
+    date = content.get("date", "TBA")
+    venue = content.get("venue", "TBA")
+    cta = content.get("cta", "Join us")
+    english = caption_pack.get("instagram", f"{title}\nDate: {date}\nVenue: {venue}\n{cta}")
+    sinhala = f"{title}\n\nදිනය: {date}\nස්ථානය: {venue}\n\n" f"{cta}.\nමෙම වැඩසටහනට එක්වී ඔබේ දායකත්වය ලබා දෙන්න."
+    tamil = (
+        f"{title}\n\nதேதி: {date}\nஇடம்: {venue}\n\n" f"{cta}.\nஇந்த முயற்சியில் இணைந்து உங்கள் பங்களிப்பை அளிக்கவும்."
+    )
+    return {"english": english, "sinhala": sinhala, "tamil": tamil}
+
+
+def _audience_variants(content: dict[str, Any], sdgs: list[dict[str, Any]]) -> dict[str, str]:
+    title = content.get("title", "this campaign")
+    cta = content.get("cta", "Join us")
+    primary = _primary_sdg(sdgs)
+    return {
+        "students": f"Build your skills and contribute to {primary['name']} through {title}. {cta}.",
+        "parents": f"Support a meaningful opportunity for young people: {title}. {cta}.",
+        "donors": f"Help scale measurable impact for {primary['name']} through {title}.",
+        "volunteers": f"Your time can make this campaign stronger. Volunteer for {title}.",
+        "companies": f"Partner with this campaign to support {primary['name']} and local community impact.",
+        "community": f"Join the community around {title} and help create visible change.",
+    }
+
+
+def _platform_variants(content: dict[str, Any], caption_pack: dict[str, Any]) -> dict[str, str]:
+    title = content.get("title", "Upcoming Event")
+    date = content.get("date", "TBA")
+    venue = content.get("venue", "TBA")
+    cta = content.get("cta", "Join us")
+    return {
+        "instagram": caption_pack.get("instagram", ""),
+        "facebook": caption_pack.get("facebook", ""),
+        "linkedin": caption_pack.get("linkedin", ""),
+        "whatsapp": caption_pack.get("whatsapp_export", ""),
+        "email": f"Subject: {title}\n\nHi,\n\nWe are inviting you to {title} on {date} at {venue}.\n\n{cta}.",
+        "poster": f"{title}\n{date} | {venue}\n{cta}",
+    }
+
+
+def _compliance_review(text: str, goals: list[dict[str, Any]]) -> dict[str, Any]:
+    issues = []
+    if _validate_safe_text(text):
+        issues.append("Unsafe or prohibited wording detected.")
+    if re.search(r"\bguarantee|guaranteed|cure|100%|instant result\b", text, flags=re.IGNORECASE):
+        issues.append("Possible exaggerated or misleading claim.")
+    for goal in goals:
+        if goal.get("target", 0) > 100000:
+            issues.append(f"Impact target for {goal.get('metric')} may be exaggerated.")
+    return {"status": "attention" if issues else "ok", "issues": issues}
+
+
+def _designer_feedback(style: dict[str, Any]) -> list[str]:
+    profile = style.get("style_profile", {}) if isinstance(style.get("style_profile"), dict) else {}
+    feedback = []
+    if profile.get("sample_count", 0) < 2:
+        feedback.append("Upload at least two sample flyers so the design pattern is more reliable.")
+    if not profile.get("color_palette") and not style.get("colors"):
+        feedback.append("Add brand colors or upload color-rich samples.")
+    if "footer" not in profile.get("accent_structure", ""):
+        feedback.append("Reserve a footer/logo area for partner marks and contact details.")
+    if not feedback:
+        feedback.append("Samples provide enough pattern context for a consistent campaign design.")
+    return feedback
+
+
+def _build_campaign_intelligence(
+    event: dict[str, Any],
+    campaign: dict[str, Any],
+    organization_profile: dict[str, Any] | None = None,
+    partners: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    style = _ensure_style_schema(event.setdefault("style", {}))
+    org_profile = organization_profile if organization_profile is not None else event.get("organization_profile", {})
+    partner_memory = partners if partners is not None else event.get("partners", [])
+    preferred_sdgs = org_profile.get("preferred_sdgs", []) if isinstance(org_profile, dict) else []
+    content = campaign.get("content", {})
+    caption_pack = campaign.get("caption_pack", {})
+    sdgs = _classify_sdgs(_content_text(event, campaign), preferred_sdgs)
+    goals = _impact_goals(content, sdgs)
+    accessibility = _accessibility_check(event, campaign, caption_pack)
+    quality = _quality_score(content, sdgs, goals, accessibility, caption_pack)
+    return {
+        "sdgs": sdgs,
+        "sdg_badges": _sdg_badges(sdgs),
+        "sdg_template": _primary_sdg(sdgs).get("template", "campaign"),
+        "impact_goals": goals,
+        "strategy": _strategy(event, campaign, sdgs),
+        "optimized_ctas": _optimized_ctas(content, sdgs),
+        "multilingual_captions": _localized_captions(content, caption_pack),
+        "audience_variants": _audience_variants(content, sdgs),
+        "platform_variants": _platform_variants(content, caption_pack),
+        "accessibility": accessibility,
+        "quality": quality,
+        "compliance": _compliance_review(_content_text(event, campaign), goals),
+        "designer_feedback": _designer_feedback(style),
+        "organization_memory": org_profile if isinstance(org_profile, dict) else {},
+        "partner_memory": partner_memory[:8] if isinstance(partner_memory, list) else [],
+        "generated_at": _now(),
+    }
 
 
 def _ensure_style_schema(style: dict[str, Any]) -> dict[str, Any]:
@@ -811,6 +1250,16 @@ def _centered_text(draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int], te
     draw.text((x, y), text, fill=fill, font=font)
 
 
+def _fit_text(draw: ImageDraw.ImageDraw, text: str, font: Any, max_width: int) -> str:
+    clean = " ".join(str(text).split())
+    if draw.textbbox((0, 0), clean, font=font)[2] <= max_width:
+        return clean
+    suffix = "..."
+    while clean and draw.textbbox((0, 0), clean + suffix, font=font)[2] > max_width:
+        clean = clean[:-1].rstrip()
+    return (clean + suffix) if clean else suffix
+
+
 def _latest_style_analysis(style: dict[str, Any]) -> dict[str, Any]:
     analyses = style.get("style_analysis") or []
     latest = analyses[-1] if analyses else {}
@@ -907,9 +1356,20 @@ def _draw_detail_chip(
     label_font, value_font = fonts
     fill, outline, ink = colors
     value_ink = "#111827" if fill.upper() in {"#F8FAFC", "#FFFFFF"} else ink
+    max_width = box[2] - box[0] - 44
+    value_text = " ".join(str(value).split())
+    fitted_font = value_font
+    if draw.textbbox((0, 0), value_text, font=fitted_font)[2] > max_width:
+        for size in range(int(getattr(value_font, "size", 30)) - 2, 21, -2):
+            candidate_font = _font(size, bold=True)
+            if draw.textbbox((0, 0), value_text, font=candidate_font)[2] <= max_width:
+                fitted_font = candidate_font
+                break
+        else:
+            value_text = _fit_text(draw, value, value_font, max_width)
     draw.rounded_rectangle(box, radius=22, fill=fill, outline=outline)
     draw.text((box[0] + 22, box[1] + 16), label, fill="#64748B", font=label_font)
-    draw.text((box[0] + 22, box[1] + 48), value[:24], fill=value_ink, font=value_font)
+    draw.text((box[0] + 22, box[1] + 48), value_text, fill=value_ink, font=fitted_font)
 
 
 def _render_template_flyer(
@@ -949,6 +1409,8 @@ def _render_template_flyer(
         badge = "WORKSHOP"
     elif "webinar" in content.get("key_message", "").lower():
         badge = "WEBINAR"
+    sdg_badges = _sdg_badges(_classify_sdgs(_content_text(event, campaign)))
+    sdg_badge = sdg_badges[0] if sdg_badges else "SDG-ALIGNED CAMPAIGN"
 
     detail_boxes = [
         ("DATE", content.get("date", "TBA")),
@@ -1066,11 +1528,17 @@ def _render_template_flyer(
                 (label_font, detail_font),
                 ("#F8FAFC", outline, ink),
             )
-        y += 278
-        if content.get("key_message"):
-            y = _draw_wrapped(draw, content.get("key_message", ""), (x0, y), body_font, ink, 34, 10)
+        detail_bottom = y + 248
+        y = detail_bottom + 34
+        if content.get("key_message") and detail_bottom <= 860:
+            message_lines = _text_lines(content.get("key_message", ""), 34)
+            if len(message_lines) > 2:
+                message_lines = message_lines[:2]
+                message_lines[-1] = _fit_text(draw, message_lines[-1], body_font, panel[2] - x0 - 85)
+            y = _draw_wrapped(draw, "\n".join(message_lines), (x0, y), body_font, ink, 34, 10)
         cta_height = 126 if direction["cta_scale"] == "large" else 104
-        cta_box = (x0, min(990, y + 38), panel[2] - 85, min(990, y + 38) + cta_height)
+        cta_y = max(990, min(1010, y + 38))
+        cta_box = (x0, cta_y, panel[2] - 85, cta_y + cta_height)
         draw.rounded_rectangle(cta_box, radius=34, fill=primary)
         _centered_text(draw, cta_box, content.get("cta", "Join us")[:44], cta_font, on_primary)
 
@@ -1083,6 +1551,13 @@ def _render_template_flyer(
     ]
     for index, line in enumerate(footer_lines):
         draw.text((74, 1244 + index * 42), line[:96], fill=on_dark, font=footer_font)
+    chip_text = sdg_badge[:34]
+    chip_bbox = draw.textbbox((0, 0), chip_text, font=label_font)
+    chip_width = min(420, chip_bbox[2] - chip_bbox[0] + 44)
+    chip_x = width - chip_width - 72
+    chip_y = 1240
+    draw.rounded_rectangle((chip_x, chip_y, chip_x + chip_width, chip_y + 54), radius=27, fill=primary)
+    draw.text((chip_x + 22, chip_y + 13), chip_text, fill=on_primary, font=label_font)
 
     image.save(flyer_path)
     return direction
@@ -1443,6 +1918,270 @@ def approve_caption_pack(event_id: str, campaign_id: str) -> str:
     event["updated_at"] = _now()
     _save_state(state)
     return _json({"ok": True, "campaign": campaign})
+
+
+def enrich_campaign_intelligence(event_id: str, campaign_id: str) -> str:
+    """Analyze campaign SDGs, impact, strategy, accessibility, quality, and audience/platform variants."""
+    state = _load_state()
+    event = _get_event(state, event_id)
+    campaign = _get_campaign(event, campaign_id)
+    campaign["intelligence"] = _build_campaign_intelligence(
+        event,
+        campaign,
+        state.get("organization_profile", {}),
+        state.get("partners", []),
+    )
+    campaign["updated_at"] = _now()
+    event["updated_at"] = _now()
+    _save_state(state)
+    return _json(
+        {"ok": True, "event_id": event_id, "campaign_id": campaign_id, "intelligence": campaign["intelligence"]}
+    )
+
+
+def generate_one_click_campaign_pack(
+    event_id: str,
+    campaign_id: str,
+    design_instruction: str = "",
+    caption_direction: str = "",
+) -> str:
+    """Generate flyer, captions, SDG intelligence, impact goals, variants, and quality score in one action."""
+    state = _load_state()
+    event = _get_event(state, event_id)
+    campaign = _get_campaign(event, campaign_id)
+    missing = campaign.get("missing_fields") or _missing_fields(campaign.get("content", {}))
+    unsafe_terms = campaign.get("unsafe_terms") or []
+    if missing or unsafe_terms:
+        return _json({"ok": False, "blocked": True, "missing_fields": missing, "unsafe_terms": unsafe_terms})
+    _save_state(state)
+
+    approve_flyer_content(event_id, campaign_id)
+    flyer_result = json.loads(generate_flyer(event_id, campaign_id, design_instruction))
+    approve_flyer(event_id, campaign_id)
+    caption_result = json.loads(generate_caption_pack(event_id, campaign_id, caption_direction))
+    intelligence_result = json.loads(enrich_campaign_intelligence(event_id, campaign_id))
+    state = _load_state()
+    event = _get_event(state, event_id)
+    campaign = _get_campaign(event, campaign_id)
+    campaign["status"] = "one_click_pack_ready"
+    campaign["latest_user_action"] = "one-click campaign pack generated"
+    campaign["updated_at"] = _now()
+    event["updated_at"] = _now()
+    _save_state(state)
+    return _json(
+        {
+            "ok": True,
+            "event_id": event_id,
+            "campaign_id": campaign_id,
+            "flyer": flyer_result.get("flyer", {}),
+            "caption_pack": caption_result.get("caption_pack", {}),
+            "intelligence": intelligence_result.get("intelligence", {}),
+            "campaign": campaign,
+        }
+    )
+
+
+def generate_campaign_impact_report(event_id: str, campaign_id: str, report_format: str = "markdown") -> str:
+    """Create a post-campaign impact report for judges or team records."""
+    state = _load_state()
+    event = _get_event(state, event_id)
+    campaign = _get_campaign(event, campaign_id)
+    intelligence = campaign.get("intelligence") or _build_campaign_intelligence(
+        event,
+        campaign,
+        state.get("organization_profile", {}),
+        state.get("partners", []),
+    )
+    campaign["intelligence"] = intelligence
+    content = campaign.get("content", {})
+    flyer = campaign.get("flyer", {})
+    publish_results = campaign.get("publish_results", [])
+    sdg_lines = [f"- {badge}" for badge in intelligence.get("sdg_badges", [])] or ["- Not classified yet"]
+    goal_lines = [
+        f"- {goal.get('metric')}: {goal.get('target')} ({goal.get('why')})"
+        for goal in intelligence.get("impact_goals", [])
+    ] or ["- No measurable goals generated yet"]
+    caption_keys = ", ".join(
+        key
+        for key in ["instagram", "facebook", "linkedin", "whatsapp_export"]
+        if campaign.get("caption_pack", {}).get(key)
+    )
+    platform_lines = [
+        f"- {result.get('target')}: {result.get('status')} ({result.get('mode')})" for result in publish_results
+    ] or ["- Not published yet"]
+    accessibility_issues = [
+        f"- Issue: {issue}" for issue in intelligence.get("accessibility", {}).get("issues", [])
+    ] or ["- No blocking accessibility issues found"]
+    report = "\n".join(
+        [
+            f"# Campaign Impact Report: {content.get('title', campaign_id)}",
+            "",
+            f"Event: {event.get('name')}",
+            f"Campaign ID: {campaign_id}",
+            f"Status: {campaign.get('status')}",
+            "",
+            "## SDGs Addressed",
+            *sdg_lines,
+            "",
+            "## Impact Goals",
+            *goal_lines,
+            "",
+            "## Campaign Materials",
+            f"- Flyer: {flyer.get('path', 'Not generated')}",
+            f"- Captions: {caption_keys or 'Not generated'}",
+            "",
+            "## Platforms Used",
+            *platform_lines,
+            "",
+            "## Quality Score",
+            f"- {intelligence.get('quality', {}).get('score', 'N/A')} ({intelligence.get('quality', {}).get('grade', 'N/A')})",
+            "",
+            "## Accessibility",
+            f"- Score: {intelligence.get('accessibility', {}).get('score', 'N/A')}",
+            *accessibility_issues,
+        ]
+    )
+    output_dir = _output_dir() / event_id / campaign_id
+    output_dir.mkdir(parents=True, exist_ok=True)
+    report_path = output_dir / ("impact_report.md" if report_format.lower() != "json" else "impact_report.json")
+    if report_format.lower() == "json":
+        report_path.write_text(json.dumps({"report": report, "intelligence": intelligence}, indent=2), encoding="utf-8")
+    else:
+        report_path.write_text(report, encoding="utf-8")
+    campaign["impact_report"] = {"path": str(report_path), "format": report_format, "generated_at": _now()}
+    campaign["updated_at"] = _now()
+    event["updated_at"] = _now()
+    _save_state(state)
+    return _json(
+        {"ok": True, "event_id": event_id, "campaign_id": campaign_id, "report": report, "path": str(report_path)}
+    )
+
+
+def get_impact_dashboard(event_id: str = "") -> str:
+    """Return aggregate campaign, SDG, platform, volunteer, and reach metrics."""
+    state = _load_state()
+    events = state.get("events", {})
+    selected_events = {event_id: _get_event(state, event_id)} if event_id else events
+    sdg_counter: Counter[str] = Counter()
+    platform_counter: Counter[str] = Counter()
+    campaign_count = 0
+    posts_prepared = 0
+    volunteer_target = 0
+    reach_target = 0
+    quality_scores = []
+    for event in selected_events.values():
+        for campaign in event.get("campaigns", {}).values():
+            campaign_count += 1
+            intelligence = campaign.get("intelligence") or _build_campaign_intelligence(
+                event,
+                campaign,
+                state.get("organization_profile", {}),
+                state.get("partners", []),
+            )
+            for sdg in intelligence.get("sdgs", []):
+                sdg_counter[f"SDG {sdg['id']}: {sdg['name']}"] += 1
+            caption_pack = campaign.get("caption_pack", {})
+            posts_prepared += sum(
+                1 for key in ["instagram", "facebook", "linkedin", "whatsapp_export"] if caption_pack.get(key)
+            )
+            for result in campaign.get("publish_results", []):
+                platform_counter[result.get("target", "unknown")] += 1
+            for goal in intelligence.get("impact_goals", []):
+                if "volunteer" in goal.get("metric", ""):
+                    volunteer_target += int(goal.get("target", 0))
+                if "reach" in goal.get("metric", ""):
+                    reach_target += int(goal.get("target", 0))
+            if intelligence.get("quality", {}).get("score"):
+                quality_scores.append(intelligence["quality"]["score"])
+    dashboard = {
+        "campaigns": campaign_count,
+        "sdgs_covered": dict(sdg_counter),
+        "posts_prepared": posts_prepared,
+        "published_platforms": dict(platform_counter),
+        "volunteers_targeted": volunteer_target,
+        "estimated_reach": reach_target,
+        "average_quality_score": round(sum(quality_scores) / len(quality_scores)) if quality_scores else 0,
+        "calendar_items": len(state.get("calendar", [])),
+    }
+    return _json({"ok": True, "event_id": event_id, "dashboard": dashboard})
+
+
+def schedule_campaign(
+    event_id: str,
+    campaign_id: str,
+    approval_due: str = "",
+    publish_at: str = "",
+    reminder_note: str = "",
+) -> str:
+    """Schedule campaign approval/publishing dates and reminder notes."""
+    state = _load_state()
+    event = _get_event(state, event_id)
+    _get_campaign(event, campaign_id)
+    item = {
+        "event_id": event_id,
+        "campaign_id": campaign_id,
+        "approval_due": approval_due.strip(),
+        "publish_at": publish_at.strip(),
+        "reminder_note": reminder_note.strip() or "Review campaign approvals and publishing readiness.",
+        "created_at": _now(),
+        "status": "scheduled",
+    }
+    state.setdefault("calendar", []).append(item)
+    _save_state(state)
+    return _json({"ok": True, "calendar_item": item, "calendar": state["calendar"]})
+
+
+def save_organization_profile(
+    organization_name: str = "",
+    brand_colors: str = "",
+    tone: str = "",
+    logo_notes: str = "",
+    recurring_hashtags: str = "",
+    preferred_sdgs: str = "",
+) -> str:
+    """Save reusable organization memory for brand, tone, hashtags, and preferred SDGs."""
+    state = _load_state()
+    profile = state.setdefault("organization_profile", {})
+    if organization_name:
+        profile["organization_name"] = organization_name.strip()
+    if brand_colors:
+        profile["brand_colors"] = _split_csv(brand_colors)
+    if tone:
+        profile["tone"] = tone.strip()
+    if logo_notes:
+        profile["logo_notes"] = logo_notes.strip()
+    if recurring_hashtags:
+        profile["recurring_hashtags"] = _extract_hashtags(recurring_hashtags)
+    if preferred_sdgs:
+        profile["preferred_sdgs"] = [
+            int(value) for value in re.findall(r"\d+", preferred_sdgs) if 1 <= int(value) <= 17
+        ]
+    profile["updated_at"] = _now()
+    _save_state(state)
+    return _json({"ok": True, "organization_profile": profile})
+
+
+def save_partner_memory(
+    partner_name: str,
+    partner_type: str = "",
+    wording_notes: str = "",
+    logo_usage: str = "",
+) -> str:
+    """Save partner/sponsor wording and logo usage preferences."""
+    state = _load_state()
+    partners = state.setdefault("partners", [])
+    partner = {
+        "partner_name": partner_name.strip(),
+        "partner_type": partner_type.strip(),
+        "wording_notes": wording_notes.strip(),
+        "logo_usage": logo_usage.strip(),
+        "updated_at": _now(),
+    }
+    partners = [item for item in partners if item.get("partner_name", "").lower() != partner_name.strip().lower()]
+    partners.append(partner)
+    state["partners"] = partners
+    _save_state(state)
+    return _json({"ok": True, "partner": partner, "partners": partners})
 
 
 def ingest_direct_campaign_assets(

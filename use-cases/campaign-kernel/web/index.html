@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CampaignKernel Workspace</title>
+    <link rel="stylesheet" href="/web/styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">CK</div>
+          <div>
+            <h1>CampaignKernel</h1>
+            <p>SDG campaign workspace</p>
+          </div>
+        </div>
+        <nav class="nav" aria-label="Workspace">
+          <a href="/" class="active">Workspace</a>
+          <a href="/campaign/docs">Documentation</a>
+        </nav>
+        <div class="runtime">
+          <div><span id="readyDot" class="status-dot"></span><span id="readyText">Checking runtime</span></div>
+          <div id="modelText">Model: checking</div>
+          <div id="modeText">Publish: checking</div>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <h2>Campaign Production</h2>
+            <p>Brief to flyer, captions, SDG impact, quality score, and report.</p>
+          </div>
+          <div class="top-actions">
+            <button id="refreshDashboard" class="secondary" type="button">Refresh Dashboard</button>
+            <a class="ghost button-link" href="/campaign/docs">Docs</a>
+          </div>
+        </header>
+
+        <section class="workspace" aria-label="Campaign workspace">
+          <div class="panel">
+            <h3>New Campaign Pack</h3>
+            <form id="packForm" class="form-grid">
+              <label>
+                Event name
+                <input name="event_name" value="IDEALIZE AI Workshop" />
+              </label>
+              <label>
+                Campaign brief
+                <textarea name="brief">Free AI workshop for university students on July 25 at University of Moratuwa. Register via link in bio.</textarea>
+              </label>
+              <div class="two">
+                <label>
+                  Theme
+                  <input name="theme_notes" value="modern tech, confident student tone" />
+                </label>
+                <label>
+                  Colors
+                  <input name="colors" value="blue, white, teal" />
+                </label>
+              </div>
+              <label>
+                Sample caption
+                <textarea name="sample_caption">Ready to build with AI? Register now. #IDEALIZE #AIWorkshop</textarea>
+              </label>
+              <label>
+                Sample flyer notes
+                <textarea name="style_notes">Header logo area, bold workshop title, clear date and venue blocks, high-contrast CTA, partner footer.</textarea>
+              </label>
+              <div class="two">
+                <label>
+                  Design direction
+                  <input name="design_instruction" value="premium but student-friendly with SDG badge" />
+                </label>
+                <label>
+                  Caption direction
+                  <input name="caption_direction" value="short, energetic, local student audience" />
+                </label>
+              </div>
+              <button id="generateButton" type="submit">Generate Pack</button>
+              <div id="formMessage" class="message">Ready.</div>
+            </form>
+          </div>
+
+          <div class="stack">
+            <section class="metrics" aria-label="Impact dashboard">
+              <div class="metric"><span>Campaigns</span><strong id="metricCampaigns">0</strong></div>
+              <div class="metric"><span>Posts</span><strong id="metricPosts">0</strong></div>
+              <div class="metric"><span>Reach</span><strong id="metricReach">0</strong></div>
+              <div class="metric"><span>Quality</span><strong id="metricQuality">0</strong></div>
+            </section>
+
+            <section class="panel">
+              <div class="result-grid">
+                <div class="flyer-frame">
+                  <div id="flyerPreview" class="empty-preview">Generated flyer appears here.</div>
+                  <div class="chips" id="sdgChips"></div>
+                </div>
+                <div>
+                  <div class="tabs" role="tablist" aria-label="Campaign output">
+                    <button class="tab active" data-tab="caption" type="button">Caption</button>
+                    <button class="tab" data-tab="impact" type="button">Impact</button>
+                    <button class="tab" data-tab="variants" type="button">Variants</button>
+                    <button class="tab" data-tab="report" type="button">Report</button>
+                  </div>
+                  <div id="outputStack" class="stack"></div>
+                </div>
+              </div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+    <script src="/web/app.js"></script>
+  </body>
+</html>

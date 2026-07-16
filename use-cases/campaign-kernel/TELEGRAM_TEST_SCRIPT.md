@@ -12,6 +12,10 @@ Expected commands:
 - `/new_event`
 - `/context`
 - `/brief`
+- `/pack`
+- `/impact`
+- `/report`
+- `/dashboard`
 - `/status`
 - `/help`
 
@@ -63,9 +67,28 @@ Expected result:
 Expected result:
 
 - Bot shows title, date, venue, and CTA.
-- Buttons appear: `Approve Content`, `Edit Content`, `Status`.
+- Buttons appear: `Approve Content`, `One-Click Pack`, `Edit Content`, `Status`.
 
-## 6. Approve And Generate
+## 6. One-Click Winning Demo
+
+Click:
+
+- `One-Click Pack`
+
+Expected result:
+
+- Bot sends the generated flyer PNG directly in chat.
+- Bot shows SDG alignment and quality score.
+- Bot shows the caption preview.
+- Flyer includes a visible SDG badge.
+
+Optional command version:
+
+```text
+/pack premium SDG campaign, larger CTA
+```
+
+## 7. Manual Approval Flow
 
 Click:
 
@@ -87,7 +110,7 @@ Expected result:
 
 - The new flyer visually changes layout and emphasis.
 
-## 7. Captions And Final Approval
+## 8. Captions, Impact, And Final Approval
 
 Click:
 
@@ -99,6 +122,9 @@ Click:
 Expected result:
 
 - Bot shows a short Instagram caption preview.
+- `/impact` shows SDGs, impact goals, best CTA, accessibility, and quality score.
+- `/report` creates a Markdown impact report path for judges.
+- `/dashboard` shows aggregate campaign metrics.
 - Final approval shows publish/export buttons.
 
 Optional caption edit test:
@@ -111,7 +137,7 @@ Expected result:
 
 - Caption text is rewritten, shorter, and hashtags are removed.
 
-## 8. Publish Demo
+## 9. Publish Demo
 
 Click:
 
@@ -129,7 +155,22 @@ Expected result:
 
 - Bot returns a WhatsApp-ready export message.
 
-## 9. Debug Only If Needed
+## 10. Web Workspace Check
+
+Open:
+
+```text
+http://127.0.0.1:8000/
+http://127.0.0.1:8000/campaign/docs
+```
+
+Expected result:
+
+- Web workspace loads.
+- Generate Pack creates flyer preview, captions, SDG chips, impact metrics, and report link.
+- Documentation page explains the architecture and demo flow.
+
+## 11. Debug Only If Needed
 
 Use this only during development:
 

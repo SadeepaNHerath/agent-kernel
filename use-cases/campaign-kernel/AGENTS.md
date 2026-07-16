@@ -2,7 +2,7 @@
 
 ## Overview
 
-CampaignKernel uses Agent Kernel as the orchestration layer for an event campaign workflow. The Telegram bot is the user-facing integration, while Agent Kernel agents call tools that store event context, generate structured flyer content, render flyers, create captions, manage approvals, and publish or export final packages.
+CampaignKernel uses Agent Kernel as the orchestration layer for an event campaign workflow. Telegram and the web workspace are the user-facing integrations, while Agent Kernel agents call tools that store event context, generate structured flyer content, render flyers, create captions, analyze SDG impact, manage approvals, and publish or export final packages.
 
 ## Agents
 
@@ -13,6 +13,8 @@ CampaignKernel uses Agent Kernel as the orchestration layer for an event campaig
 - `caption_agent`: Produces or rewrites platform-specific captions using the saved event caption pattern, aggregate sample profile, and the latest edit prompt.
 - `approval_agent`: Enforces the approval workflow so content, flyer, caption, and final package are not published prematurely.
 - `publisher_agent`: Publishes through configured adapters or creates mock previews/export packages when live credentials are unavailable.
+- `campaign_strategy_agent`: Creates SDG classification, campaign strategy, impact goals, optimized CTAs, multilingual captions, accessibility checks, platform/audience variants, quality scores, schedules, dashboards, and reports.
+- `campaign_memory_agent`: Saves organization profile memory and partner/sponsor memory so future campaigns reuse brand, SDG, hashtag, wording, and logo preferences.
 
 ## Tools
 
@@ -28,6 +30,13 @@ CampaignKernel uses Agent Kernel as the orchestration layer for an event campaig
 - `generate_caption_pack`
 - `edit_caption_pack`
 - `approve_caption_pack`
+- `enrich_campaign_intelligence`
+- `generate_one_click_campaign_pack`
+- `generate_campaign_impact_report`
+- `get_impact_dashboard`
+- `schedule_campaign`
+- `save_organization_profile`
+- `save_partner_memory`
 - `ingest_direct_campaign_assets`
 - `approve_campaign_package`
 - `publish_campaign`
@@ -63,6 +72,18 @@ Each campaign stores:
 - caption pack and approval state
 - final approval state
 - mock or live publishing results
+- SDG/impact intelligence
+- accessibility and compliance review
+- quality score
+- generated impact report path
+
+Global memory stores:
+
+- organization profile
+- preferred SDGs
+- recurring hashtags
+- partner/sponsor wording
+- campaign calendar
 
 ## Competition Demo Path
 
@@ -75,7 +96,9 @@ Each campaign stores:
 7. Approve or regenerate the flyer with buttons.
 8. Generate and approve captions with buttons.
 9. Approve the full package with buttons.
-10. Mock publish to Instagram/Facebook/LinkedIn or export WhatsApp-ready content with buttons or `/publish` and `/export`.
+10. Use `One-Click Pack` or `/pack` to show flyer, captions, SDG classification, impact goals, multilingual captions, and quality score in one move.
+11. Generate `/report` and `/dashboard` for the judging story.
+12. Mock publish to Instagram/Facebook/LinkedIn or export WhatsApp-ready content with buttons or `/publish` and `/export`.
 
 ## Safety Rules
 

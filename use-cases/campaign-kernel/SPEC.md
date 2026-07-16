@@ -4,7 +4,7 @@
 
 CampaignKernel is an Agent Kernel event campaign production agent. It helps student clubs, NGOs, AIESEC teams, and small organizers turn a short event brief plus event-specific brand context into approved flyer content, a generated flyer, platform-specific captions, and a publish/export package.
 
-The primary interface is Telegram. A separate Telegram event chat or channel can be used for each event. Before a campaign, the user provides logos, assets, theme notes, uploaded sample flyers, and sample captions. CampaignKernel stores this event context and reuses the same caption pattern, visual style, and tone across future campaign material.
+The primary interfaces are Telegram and a lightweight web workspace. A separate Telegram event chat or channel can be used for each event, while the web workspace gives judges and organizers a direct product console. Before a campaign, the user provides logos, assets, theme notes, uploaded sample flyers, and sample captions. CampaignKernel stores this event context and reuses the same caption pattern, visual style, and tone across future campaign material.
 
 ## Functional Requirements
 
@@ -14,6 +14,8 @@ The primary interface is Telegram. A separate Telegram event chat or channel can
 - Register Telegram slash commands for the main workflow.
 - Use short user-facing messages and inline buttons instead of raw JSON in normal Telegram replies.
 - Send generated flyer images directly into Telegram chat.
+- Serve the web workspace at `/` and product documentation at `/campaign/docs`.
+- Provide web APIs for one-click campaign packs, dashboards, impact analysis, reports, scheduling, organization memory, partner memory, and safe artifact viewing.
 - Keep raw state available through developer-only debug commands.
 - Support a full creation workflow:
   - event brief
@@ -28,6 +30,20 @@ The primary interface is Telegram. A separate Telegram event chat or channel can
   - caption approval
   - final campaign approval
   - publish or export
+- Support a one-click campaign pack:
+  - approved content
+  - flyer generation
+  - caption generation
+  - SDG classification
+  - visible SDG badge on the flyer
+  - impact goals
+  - multilingual captions in English, Sinhala, and Tamil
+  - accessibility and compliance checks
+  - campaign quality score
+  - audience/platform variants
+  - Markdown impact report
+- Support an impact dashboard and campaign calendar.
+- Support organization profile memory and partner memory.
 - Support a designer/editor workflow where the user directly provides a final flyer and/or final caption, then asks CampaignKernel to validate, package, and publish/export it.
 - Use Agent Kernel tools for event context, campaign state, content generation, flyer rendering, captions, approval gates, and publisher adapters.
 - Use session or persistent state to remember event context and campaign history.

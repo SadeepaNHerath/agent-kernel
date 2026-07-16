@@ -14,6 +14,10 @@ ACTION_CODES = {
     "publish": "pub",
     "export": "exp",
     "status": "st",
+    "one_click_pack": "ocp",
+    "impact": "imp",
+    "report": "rep",
+    "dashboard": "dash",
     "edit_content": "ec",
     "edit_flyer": "ef",
     "edit_caption": "eca",
@@ -75,6 +79,7 @@ def content_keyboard(event_id: str, campaign_id: str) -> dict[str, Any]:
     return keyboard(
         [
             [button("Approve Content", "approve_content", event_id, campaign_id)],
+            [button("One-Click Pack", "one_click_pack", event_id, campaign_id)],
             [
                 button("Edit Content", "edit_content", event_id, campaign_id),
                 button("Status", "status", event_id, campaign_id),
@@ -116,7 +121,15 @@ def caption_keyboard(event_id: str, campaign_id: str) -> dict[str, Any]:
 
 
 def campaign_keyboard(event_id: str, campaign_id: str) -> dict[str, Any]:
-    return keyboard([[button("Approve Campaign", "approve_campaign", event_id, campaign_id)]])
+    return keyboard(
+        [
+            [button("Approve Campaign", "approve_campaign", event_id, campaign_id)],
+            [
+                button("Impact", "impact", event_id, campaign_id),
+                button("Report", "report", event_id, campaign_id),
+            ],
+        ]
+    )
 
 
 def publish_keyboard(event_id: str, campaign_id: str) -> dict[str, Any]:
@@ -124,6 +137,7 @@ def publish_keyboard(event_id: str, campaign_id: str) -> dict[str, Any]:
         [
             [button("Publish IG/FB/LinkedIn", "publish", event_id, campaign_id, "social")],
             [button("WhatsApp Export", "export", event_id, campaign_id, "wa")],
+            [button("Impact Dashboard", "dashboard", event_id, campaign_id)],
         ]
     )
 
@@ -281,6 +295,78 @@ def flyer_photo_caption(payload: str | dict[str, Any]) -> str:
         caption.append("AI fallback: template renderer used.")
     caption.append("Review the image, then approve or regenerate.")
     return "\n".join(caption)
+
+
+def campaign_pack_message(payload: str | dict[str, Any]) -> str:
+    data = load_payload(payload)
+    if not data.get("ok"):
+        return "Campaign pack is blocked. " + _format_blocked(data)
+    campaign_id = data.get("campaign_id", "")
+    intelligence = data.get("intelligence", {})
+    quality = intelligence.get("quality", {}) if isinstance(intelligence, dict) else {}
+    sdgs = intelligence.get("sdg_badges", []) if isinstance(intelligence, dict) else []
+    lines = [
+        "Campaign pack ready.",
+        f"Campaign ID: {campaign_id}",
+    ]
+    if sdgs:
+        lines.append("SDGs: " + ", ".join(sdgs[:2]))
+    if quality:
+        lines.append(f"Quality score: {quality.get('score', 'N/A')} ({quality.get('grade', 'N/A')})")
+    lines.append("Review the flyer and captions, then approve or edit.")
+    return "\n".join(lines)
+
+
+def impact_message(payload: str | dict[str, Any]) -> str:
+    data = load_payload(payload)
+    if not data.get("ok"):
+        return "Impact analysis is blocked. " + _format_blocked(data)
+    intelligence = data.get("intelligence", {})
+    quality = intelligence.get("quality", {}) if isinstance(intelligence, dict) else {}
+    sdgs = intelligence.get("sdg_badges", []) if isinstance(intelligence, dict) else []
+    goals = intelligence.get("impact_goals", []) if isinstance(intelligence, dict) else []
+    ctas = intelligence.get("optimized_ctas", []) if isinstance(intelligence, dict) else []
+    lines = ["Campaign impact analysis."]
+    if sdgs:
+        lines.append("SDGs: " + ", ".join(sdgs[:3]))
+    if quality:
+        lines.append(f"Quality: {quality.get('score', 'N/A')} ({quality.get('grade', 'N/A')})")
+    if goals:
+        lines.append("Goals:")
+        for goal in goals[:3]:
+            lines.append(f"- {goal.get('metric')}: {goal.get('target')}")
+    if ctas:
+        lines.append("Best CTA: " + ctas[0])
+    return "\n".join(lines)
+
+
+def dashboard_message(payload: str | dict[str, Any]) -> str:
+    data = load_payload(payload)
+    if not data.get("ok"):
+        return "Dashboard is unavailable. " + _format_blocked(data)
+    dashboard = data.get("dashboard", {})
+    sdgs = dashboard.get("sdgs_covered", {}) if isinstance(dashboard, dict) else {}
+    lines = [
+        "Impact dashboard.",
+        f"Campaigns: {dashboard.get('campaigns', 0)}",
+        f"Posts prepared: {dashboard.get('posts_prepared', 0)}",
+        f"Estimated reach target: {dashboard.get('estimated_reach', 0)}",
+        f"Average quality: {dashboard.get('average_quality_score', 0)}",
+    ]
+    if sdgs:
+        lines.append("Top SDGs: " + ", ".join(list(sdgs.keys())[:3]))
+    return "\n".join(lines)
+
+
+def report_message(payload: str | dict[str, Any]) -> str:
+    data = load_payload(payload)
+    if not data.get("ok"):
+        return "Report generation is blocked. " + _format_blocked(data)
+    report = data.get("report", "")
+    preview = report[:900].rstrip()
+    if len(report) > len(preview):
+        preview += "\n..."
+    return "\n".join(["Impact report created.", f"Path: {data.get('path', '')}", "", preview])
 
 
 def flyer_approved_message(payload: str | dict[str, Any]) -> str:

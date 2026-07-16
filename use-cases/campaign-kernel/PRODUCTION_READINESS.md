@@ -7,6 +7,9 @@ CampaignKernel is now prepared for a free/local production-style test and a late
 - Persistent Telegram chat state in `.campaign_kernel_state/chat_state.json`.
 - Telegram update de-duplication in `.campaign_kernel_state/processed_updates.json`.
 - `/campaign/ready` and `/campaign/diagnostics` endpoints.
+- Web workspace at `/` and product documentation at `/campaign/docs`.
+- JSON APIs for dashboard, quick campaign packs, SDG impact analysis, campaign reports, scheduling, organization memory, and partner memory.
+- Safe artifact serving for generated flyers and reports under the CampaignKernel state directory.
 - Upload size/type checks for sample flyers.
 - Clear runtime warnings for missing key environment settings.
 - Free/local ops scripts for running, webhook setup, tunnel setup, and health checks.
@@ -40,6 +43,13 @@ Check readiness:
 ```bash
 uv run python ops/doctor.py
 curl http://127.0.0.1:8000/campaign/ready
+```
+
+Open the web workspace:
+
+```text
+http://127.0.0.1:8000/
+http://127.0.0.1:8000/campaign/docs
 ```
 
 ## Required Environment
@@ -88,5 +98,6 @@ uv run python ops/set_webhook.py https://your-domain.example
 - Proper database if multiple instances are needed.
 - Private file storage for generated flyers and uploads.
 - Auth/roles if multiple teams use the same bot.
+- Web authentication before opening the workspace publicly.
 - Monitoring/alerts for webhook errors and failed publish actions.
 - Real Meta/LinkedIn credentials if live publishing is enabled.

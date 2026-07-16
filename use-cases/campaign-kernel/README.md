@@ -10,7 +10,7 @@ This creates delays, inconsistent captions, missing event details, and repeated 
 
 ## Solution Overview
 
-CampaignKernel turns Telegram into a campaign production workspace for non-programmers.
+CampaignKernel turns Telegram and a lightweight web workspace into a campaign production system for non-programmers.
 
 Before an event, the user provides:
 
@@ -27,12 +27,24 @@ For each campaign, the user can choose either path:
 
 The normal Telegram experience uses short replies and inline buttons. Raw JSON is hidden from the happy path and kept for `/debug_status` when developers need it.
 
+The web workspace adds a judge-friendly product surface:
+
+- one-click campaign pack generation from a messy brief
+- generated flyer preview through safe artifact URLs
+- SDG classification and visible SDG flyer badge
+- impact goals, campaign quality score, accessibility checks, and compliance review
+- English, Sinhala, and Tamil caption variants
+- audience/platform variants
+- impact dashboard and exportable Markdown impact report
+- documentation page at `/campaign/docs`
+
 CampaignKernel uses Agent Kernel for:
 
 - Telegram user-facing integration.
 - Multi-agent campaign workflow.
 - Tool calling for event context, campaign state, flyer rendering, captions, approvals, and publishing.
 - Memory/state for event-specific style and campaign history.
+- Strategy and memory agents for SDGs, impact, accessibility, quality scoring, organization memory, and partner memory.
 
 Publishing defaults to mock previews so the competition demo is reliable. Live Facebook, Instagram, and LinkedIn publishing can be added when valid credentials are available. WhatsApp is treated as a share-ready export target.
 
@@ -112,6 +124,18 @@ Run the Telegram webhook server:
 uv run python server.py
 ```
 
+Open the web workspace:
+
+```text
+http://127.0.0.1:8000/
+```
+
+Open the product documentation page:
+
+```text
+http://127.0.0.1:8000/campaign/docs
+```
+
 The server registers the main slash commands with Telegram on startup. You can also refresh the slash menu manually:
 
 ```bash
@@ -174,6 +198,7 @@ Then send:
 From there, use the buttons:
 
 - `Approve Content`
+- `One-Click Pack` to generate the flyer, captions, SDG intelligence, impact goals, quality score, and report path together
 - `Generate Flyer`
 - Review the flyer image sent in chat, then `Approve Flyer` or `Regenerate`
 - For visual edits, send natural directions such as `/generate_flyer make it minimal with more whitespace` or `/generate_flyer dark bold centered poster with a larger CTA`
@@ -182,6 +207,18 @@ From there, use the buttons:
 - `Approve Caption`
 - `Approve Campaign`
 - `Publish IG/FB/LinkedIn` or `WhatsApp Export`
+
+Power commands for the upgraded demo:
+
+```text
+/pack
+/impact
+/report
+/dashboard
+/schedule approval_due=2026-07-24 18:00 publish_at=2026-07-25 09:00 note=Final organizer check
+/org_profile name=IDEALIZE colors=blue, white tone=confident student sdgs=4, 9 #IDEALIZE
+/partner name=Green Society type=student partner wording=community partner logo=footer lockup
+```
 
 Designer/editor shortcut:
 
@@ -203,7 +240,9 @@ For free/local production hardening and VM handoff, see `PRODUCTION_READINESS.md
 
 - The code is inside the Agent Kernel repository under `use-cases/campaign-kernel`.
 - The project uses Telegram as the supported user-facing integration.
-- The workflow demonstrates multiple agents, tools, memory/state, multimodal campaign context, and approval-driven publishing.
+- The web workspace shows the same agent workflow without needing Telegram during judging.
+- The workflow demonstrates multiple agents, tools, memory/state, multimodal campaign context, SDG intelligence, and approval-driven publishing.
 - Uploaded sample flyers are saved and analyzed into reusable style context: layout, palette, hierarchy, CTA style, and caption pattern.
 - Generated flyers are delivered directly to Telegram with `sendPhoto`.
+- Generated flyers include a visible SDG badge and are available through safe web artifact URLs.
 - The default mock-publish path avoids live API credential risk during judging.

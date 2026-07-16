@@ -8,10 +8,14 @@ import server
 from server import CampaignTelegramHandler
 from telegram_ux import (
     callback_data,
+    campaign_pack_message,
     content_draft_message,
+    dashboard_message,
     flyer_photo_caption,
+    impact_message,
     parse_callback_data,
     publish_keyboard,
+    report_message,
 )
 
 
@@ -52,6 +56,62 @@ def test_publish_keyboard_uses_short_callback_data():
 
     assert len(callback) <= 64
     assert parse_callback_data(callback).value == "social"
+
+
+def test_campaign_pack_and_impact_messages_are_human_readable():
+    pack = campaign_pack_message(
+        {
+            "ok": True,
+            "campaign_id": "CK-0001",
+            "intelligence": {
+                "sdg_badges": ["SDG 4: Quality Education"],
+                "quality": {"score": 91, "grade": "excellent"},
+            },
+        }
+    )
+    impact = impact_message(
+        {
+            "ok": True,
+            "intelligence": {
+                "sdg_badges": ["SDG 4: Quality Education"],
+                "quality": {"score": 91, "grade": "excellent"},
+                "impact_goals": [{"metric": "participants", "target": 80}],
+                "optimized_ctas": ["Register now"],
+            },
+        }
+    )
+
+    assert "Campaign pack ready." in pack
+    assert "Quality score: 91" in pack
+    assert "Campaign impact analysis." in impact
+    assert "{" not in pack
+
+
+def test_dashboard_and_report_messages_are_concise():
+    dashboard = dashboard_message(
+        {
+            "ok": True,
+            "dashboard": {
+                "campaigns": 2,
+                "posts_prepared": 8,
+                "estimated_reach": 2000,
+                "average_quality_score": 88,
+                "sdgs_covered": {"SDG 13: Climate Action": 1},
+            },
+        }
+    )
+    report = report_message(
+        {
+            "ok": True,
+            "path": "/tmp/impact_report.md",
+            "report": "# Campaign Impact Report\n\n## SDGs Addressed\n- SDG 13: Climate Action",
+        }
+    )
+
+    assert "Campaigns: 2" in dashboard
+    assert "Top SDGs" in dashboard
+    assert "Impact report created." in report
+    assert "/tmp/impact_report.md" in report
 
 
 def test_flyer_result_sends_photo_action():

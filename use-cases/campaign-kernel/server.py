@@ -14,11 +14,14 @@ import httpx
 from agentkernel.api import RESTAPI
 from agentkernel.openai import OpenAIModule
 from agentkernel.telegram import AgentTelegramRequestHandler
+from fastapi import HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from agent import AGENTS
 from telegram_ux import (
     campaign_approved_message,
     campaign_keyboard,
+    campaign_pack_message,
     caption_approved_message,
     caption_keyboard,
     caption_pack_message,
@@ -27,6 +30,7 @@ from telegram_ux import (
     content_draft_message,
     content_keyboard,
     context_updated_message,
+    dashboard_message,
     event_created_message,
     event_keyboard,
     flyer_approved_keyboard,
@@ -34,10 +38,12 @@ from telegram_ux import (
     flyer_keyboard,
     flyer_photo_caption,
     help_message,
+    impact_message,
     load_payload,
     parse_callback_data,
     publish_keyboard,
     publish_results_message,
+    report_message,
     sample_saved_message,
     start_message,
     status_message,
@@ -52,12 +58,19 @@ from tool import (
     draft_flyer_content,
     edit_caption_pack,
     edit_flyer_content,
+    enrich_campaign_intelligence,
+    generate_campaign_impact_report,
     generate_caption_pack,
     generate_flyer,
+    generate_one_click_campaign_pack,
     get_campaign_status,
     get_event_context,
+    get_impact_dashboard,
     ingest_direct_campaign_assets,
     publish_campaign,
+    save_organization_profile,
+    save_partner_memory,
+    schedule_campaign,
     update_event_context,
 )
 
@@ -74,12 +87,17 @@ MAX_UPLOAD_MB_ENV = "CAMPAIGN_KERNEL_MAX_UPLOAD_MB"
 DEFAULT_MAX_UPLOAD_MB = 12
 ALLOWED_UPLOAD_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".pdf"}
 FALSE_VALUES = {"0", "false", "no", "off"}
+WEB_DIR = Path(__file__).parent / "web"
 
 TELEGRAM_COMMANDS = [
     {"command": "start", "description": "Start CampaignKernel"},
     {"command": "new_event", "description": "Create a reusable event workspace"},
     {"command": "context", "description": "Add theme, colors, logos, or caption style"},
     {"command": "brief", "description": "Draft campaign content from a short brief"},
+    {"command": "pack", "description": "Generate flyer, captions, SDGs, and impact pack"},
+    {"command": "impact", "description": "Show SDG alignment, goals, and quality score"},
+    {"command": "report", "description": "Create a judge-ready impact report"},
+    {"command": "dashboard", "description": "Show impact dashboard"},
     {"command": "status", "description": "Show current event or campaign status"},
     {"command": "help", "description": "Show the simple workflow"},
 ]
@@ -143,14 +161,22 @@ def _extract_labeled_value(raw: str, label: str) -> str:
         return ""
     value = raw.split(marker, 1)[1]
     labels = [
+        "name=",
         "theme=",
         "colors=",
+        "tone=",
         "logo=",
         "asset=",
         "flyer=",
         "sample_caption=",
         "caption=",
         "style_analysis=",
+        "sdgs=",
+        "type=",
+        "wording=",
+        "approval_due=",
+        "publish_at=",
+        "note=",
     ]
     for next_label in labels:
         if next_label != marker and next_label in value:
@@ -172,6 +198,21 @@ def _context_kwargs(notes: str) -> dict[str, str]:
     }
 
 
+def _read_web_file(name: str) -> str:
+    path = WEB_DIR / name
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Web asset not found.")
+    return path.read_text(encoding="utf-8")
+
+
+async def _request_json(request: Request) -> dict[str, Any]:
+    try:
+        payload = await request.json()
+    except ValueError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
 def _state_dir() -> Path:
     return Path(os.environ.get(STATE_DIR_ENV, DEFAULT_STATE_DIR))
 
@@ -182,6 +223,28 @@ def _now() -> str:
 
 def _json_path(name: str) -> Path:
     return _state_dir() / name
+
+
+def _state_root() -> Path:
+    root = _state_dir()
+    if not root.is_absolute():
+        root = Path.cwd() / root
+    return root.resolve()
+
+
+def _safe_artifact_path(raw_path: str) -> Path:
+    if not raw_path:
+        raise HTTPException(status_code=400, detail="Missing artifact path.")
+    path = Path(raw_path)
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    resolved = path.resolve()
+    state_root = _state_root()
+    if resolved != state_root and state_root not in resolved.parents:
+        raise HTTPException(status_code=403, detail="Artifact path is outside CampaignKernel state.")
+    if not resolved.exists() or not resolved.is_file():
+        raise HTTPException(status_code=404, detail="Artifact not found.")
+    return resolved
 
 
 def _read_json_file(path: Path, default: Any) -> Any:
@@ -358,6 +421,158 @@ class CampaignTelegramHandler(AgentTelegramRequestHandler):
             diagnostics["safe_note"] = "No secrets are returned by this endpoint."
             return diagnostics
 
+        @router.get("/", response_class=HTMLResponse)
+        def campaign_workspace():
+            return HTMLResponse(_read_web_file("index.html"))
+
+        @router.get("/campaign/docs", response_class=HTMLResponse)
+        def campaign_docs():
+            return HTMLResponse(_read_web_file("docs.html"))
+
+        @router.get("/web/{asset_name}")
+        def campaign_web_asset(asset_name: str):
+            if asset_name not in {"app.js", "styles.css"}:
+                raise HTTPException(status_code=404, detail="Web asset not found.")
+            path = WEB_DIR / asset_name
+            return FileResponse(path, media_type=mimetypes.guess_type(path.name)[0])
+
+        @router.get("/api/dashboard")
+        def web_dashboard(event_id: str = ""):
+            return JSONResponse(load_payload(get_impact_dashboard(event_id)))
+
+        @router.post("/api/org-profile")
+        async def web_org_profile(request: Request):
+            body = await _request_json(request)
+            result = save_organization_profile(
+                organization_name=str(body.get("organization_name", "")),
+                brand_colors=str(body.get("brand_colors", "")),
+                tone=str(body.get("tone", "")),
+                logo_notes=str(body.get("logo_notes", "")),
+                recurring_hashtags=str(body.get("recurring_hashtags", "")),
+                preferred_sdgs=str(body.get("preferred_sdgs", "")),
+            )
+            return JSONResponse(load_payload(result))
+
+        @router.post("/api/partners")
+        async def web_partner(request: Request):
+            body = await _request_json(request)
+            result = save_partner_memory(
+                partner_name=str(body.get("partner_name", "")),
+                partner_type=str(body.get("partner_type", "")),
+                wording_notes=str(body.get("wording_notes", "")),
+                logo_usage=str(body.get("logo_usage", "")),
+            )
+            return JSONResponse(load_payload(result))
+
+        @router.post("/api/quick-pack")
+        async def web_quick_pack(request: Request):
+            body = await _request_json(request)
+            event_name = str(body.get("event_name", "")).strip() or "CampaignKernel Demo Event"
+            brief = str(body.get("brief", "")).strip()
+            if not brief:
+                return JSONResponse(
+                    {"ok": False, "blocked": True, "reason": "Campaign brief is required."}, status_code=400
+                )
+
+            event_payload = load_payload(
+                create_event_context(
+                    event_name,
+                    theme_notes=str(body.get("theme_notes", "")),
+                    tone=str(body.get("tone", "")),
+                    colors=str(body.get("colors", "")),
+                    default_hashtags=str(body.get("default_hashtags", "")),
+                )
+            )
+            event_id = event_payload.get("event_id", "")
+            if body.get("sample_caption") or body.get("style_notes"):
+                update_event_context(
+                    event_id=event_id,
+                    sample_caption=str(body.get("sample_caption", "")),
+                    sample_flyer_notes=str(body.get("style_notes", "")),
+                    caption_structure=str(body.get("caption_structure", "")),
+                    default_hashtags=str(body.get("default_hashtags", "")),
+                )
+            draft_payload = load_payload(draft_flyer_content(event_id=event_id, campaign_brief=brief))
+            campaign_id = draft_payload.get("campaign", {}).get("campaign_id", "")
+            if not campaign_id:
+                return JSONResponse(draft_payload, status_code=400)
+            pack_payload = load_payload(
+                generate_one_click_campaign_pack(
+                    event_id=event_id,
+                    campaign_id=campaign_id,
+                    design_instruction=str(body.get("design_instruction", "")),
+                    caption_direction=str(body.get("caption_direction", "")),
+                )
+            )
+            if pack_payload.get("ok"):
+                report_payload = load_payload(generate_campaign_impact_report(event_id, campaign_id))
+                pack_payload["impact_report"] = {
+                    "path": report_payload.get("path", ""),
+                    "artifact_url": f"/api/artifact?path={report_payload.get('path', '')}",
+                }
+                flyer_path = pack_payload.get("flyer", {}).get("path", "")
+                if flyer_path:
+                    pack_payload["flyer"]["artifact_url"] = f"/api/artifact?path={flyer_path}"
+            return JSONResponse(pack_payload, status_code=200 if pack_payload.get("ok") else 400)
+
+        @router.post("/api/campaigns/{event_id}")
+        async def web_create_campaign(event_id: str, request: Request):
+            body = await _request_json(request)
+            brief = str(body.get("brief", "")).strip()
+            if not brief:
+                return JSONResponse(
+                    {"ok": False, "blocked": True, "reason": "Campaign brief is required."}, status_code=400
+                )
+            result = draft_flyer_content(event_id=event_id, campaign_brief=brief)
+            return JSONResponse(load_payload(result))
+
+        @router.post("/api/campaigns/{event_id}/{campaign_id}/pack")
+        async def web_generate_pack(event_id: str, campaign_id: str, request: Request):
+            body = await _request_json(request)
+            result = load_payload(
+                generate_one_click_campaign_pack(
+                    event_id=event_id,
+                    campaign_id=campaign_id,
+                    design_instruction=str(body.get("design_instruction", "")),
+                    caption_direction=str(body.get("caption_direction", "")),
+                )
+            )
+            if result.get("ok") and result.get("flyer", {}).get("path"):
+                result["flyer"]["artifact_url"] = f"/api/artifact?path={result['flyer']['path']}"
+            return JSONResponse(result, status_code=200 if result.get("ok") else 400)
+
+        @router.get("/api/campaigns/{event_id}/{campaign_id}")
+        def web_campaign_status(event_id: str, campaign_id: str):
+            return JSONResponse(load_payload(get_campaign_status(event_id, campaign_id)))
+
+        @router.post("/api/campaigns/{event_id}/{campaign_id}/impact")
+        def web_campaign_impact(event_id: str, campaign_id: str):
+            return JSONResponse(load_payload(enrich_campaign_intelligence(event_id, campaign_id)))
+
+        @router.post("/api/campaigns/{event_id}/{campaign_id}/report")
+        def web_campaign_report(event_id: str, campaign_id: str):
+            result = load_payload(generate_campaign_impact_report(event_id, campaign_id))
+            if result.get("path"):
+                result["artifact_url"] = f"/api/artifact?path={result['path']}"
+            return JSONResponse(result)
+
+        @router.post("/api/campaigns/{event_id}/{campaign_id}/schedule")
+        async def web_schedule_campaign(event_id: str, campaign_id: str, request: Request):
+            body = await _request_json(request)
+            result = schedule_campaign(
+                event_id,
+                campaign_id,
+                approval_due=str(body.get("approval_due", "")),
+                publish_at=str(body.get("publish_at", "")),
+                reminder_note=str(body.get("reminder_note", "")),
+            )
+            return JSONResponse(load_payload(result))
+
+        @router.get("/api/artifact")
+        def web_artifact(path: str):
+            artifact = _safe_artifact_path(path)
+            return FileResponse(artifact, media_type=mimetypes.guess_type(artifact.name)[0])
+
         return router
 
     def _set_my_commands_sync(self) -> None:
@@ -444,6 +659,34 @@ class CampaignTelegramHandler(AgentTelegramRequestHandler):
         flyer = data.get("flyer", {})
         await self._send_photo(
             chat_id, flyer.get("path", ""), flyer_photo_caption(data), flyer_keyboard(event_id, campaign_id)
+        )
+
+    async def _send_pack_result(self, chat_id: int, payload: str) -> None:
+        data = load_payload(payload)
+        event_id = data.get("event_id", "")
+        campaign_id = data.get("campaign_id", "")
+        if event_id or campaign_id:
+            _remember_chat(chat_id, event_id, campaign_id)
+        if not data.get("ok"):
+            await self._send_message(chat_id, campaign_pack_message(data))
+            return
+
+        flyer = data.get("flyer", {})
+        await self._send_photo(
+            chat_id,
+            flyer.get("path", ""),
+            campaign_pack_message(data),
+            caption_keyboard(event_id, campaign_id),
+        )
+        await self._send_message(
+            chat_id,
+            caption_pack_message({"ok": True, "caption_pack": data.get("caption_pack", {})}),
+            reply_markup=caption_keyboard(event_id, campaign_id),
+        )
+        await self._send_message(
+            chat_id,
+            impact_message({"ok": True, "intelligence": data.get("intelligence", {})}),
+            reply_markup=campaign_keyboard(event_id, campaign_id),
         )
 
     async def _save_uploaded_sample(self, event_id: str, message: dict[str, Any]) -> tuple[str, str]:
@@ -572,6 +815,18 @@ class CampaignTelegramHandler(AgentTelegramRequestHandler):
                 )
                 return
 
+            if callback.action == "one_click_pack":
+                await self._send_pack_result(
+                    chat_id,
+                    generate_one_click_campaign_pack(
+                        event_id,
+                        campaign_id,
+                        "professional SDG campaign pack from the saved event style",
+                        "clear, local, approval-ready",
+                    ),
+                )
+                return
+
             if callback.action == "generate_flyer":
                 await self._send_flyer_result(chat_id, generate_flyer(event_id, campaign_id))
                 return
@@ -615,6 +870,25 @@ class CampaignTelegramHandler(AgentTelegramRequestHandler):
                 await self._send_message(
                     chat_id, campaign_approved_message(result), reply_markup=publish_keyboard(event_id, campaign_id)
                 )
+                return
+
+            if callback.action == "impact":
+                result = enrich_campaign_intelligence(event_id, campaign_id)
+                await self._send_message(
+                    chat_id, impact_message(result), reply_markup=campaign_keyboard(event_id, campaign_id)
+                )
+                return
+
+            if callback.action == "report":
+                result = generate_campaign_impact_report(event_id, campaign_id)
+                await self._send_message(
+                    chat_id, report_message(result), reply_markup=campaign_keyboard(event_id, campaign_id)
+                )
+                return
+
+            if callback.action == "dashboard":
+                result = get_impact_dashboard(event_id)
+                await self._send_message(chat_id, dashboard_message(result))
                 return
 
             if callback.action in {"publish", "export"}:
@@ -745,6 +1019,23 @@ class CampaignTelegramHandler(AgentTelegramRequestHandler):
                 await self._send_flyer_result(chat_id, generate_flyer(event_id, campaign_id, " ".join(rest)))
                 return
 
+            if cmd == "/pack":
+                event_id, campaign_id, rest = _resolve_ids(chat_id, args)
+                if not event_id or not campaign_id:
+                    await self._send_message(chat_id, "Create a brief first, then send /pack.")
+                    return
+                direction = " ".join(rest).strip() or "professional SDG campaign pack from the saved event style"
+                await self._send_pack_result(
+                    chat_id,
+                    generate_one_click_campaign_pack(
+                        event_id,
+                        campaign_id,
+                        design_instruction=direction,
+                        caption_direction=direction,
+                    ),
+                )
+                return
+
             if cmd == "/approve_flyer":
                 event_id, campaign_id, _rest = _resolve_ids(chat_id, args)
                 result = approve_flyer(event_id, campaign_id)
@@ -774,6 +1065,80 @@ class CampaignTelegramHandler(AgentTelegramRequestHandler):
                 result = approve_campaign_package(event_id, campaign_id)
                 await self._send_message(
                     chat_id, campaign_approved_message(result), reply_markup=publish_keyboard(event_id, campaign_id)
+                )
+                return
+
+            if cmd == "/impact":
+                event_id, campaign_id, _rest = _resolve_ids(chat_id, args)
+                if not event_id or not campaign_id:
+                    await self._send_message(chat_id, "Select a campaign first, then send /impact.")
+                    return
+                result = enrich_campaign_intelligence(event_id, campaign_id)
+                await self._send_message(
+                    chat_id, impact_message(result), reply_markup=campaign_keyboard(event_id, campaign_id)
+                )
+                return
+
+            if cmd == "/report":
+                event_id, campaign_id, _rest = _resolve_ids(chat_id, args)
+                if not event_id or not campaign_id:
+                    await self._send_message(chat_id, "Select a campaign first, then send /report.")
+                    return
+                result = generate_campaign_impact_report(event_id, campaign_id)
+                await self._send_message(
+                    chat_id, report_message(result), reply_markup=campaign_keyboard(event_id, campaign_id)
+                )
+                return
+
+            if cmd == "/dashboard":
+                event_id, _campaign_id, _rest = _resolve_ids(chat_id, args)
+                result = get_impact_dashboard(event_id)
+                await self._send_message(chat_id, dashboard_message(result))
+                return
+
+            if cmd == "/schedule":
+                event_id, campaign_id, rest = _resolve_ids(chat_id, args)
+                raw = " ".join(rest)
+                result = schedule_campaign(
+                    event_id,
+                    campaign_id,
+                    approval_due=_extract_labeled_value(raw, "approval_due"),
+                    publish_at=_extract_labeled_value(raw, "publish_at"),
+                    reminder_note=_extract_labeled_value(raw, "note") or raw,
+                )
+                await self._send_message(
+                    chat_id, "Campaign scheduled.\n" + status_message(get_campaign_status(event_id, campaign_id))
+                )
+                if not load_payload(result).get("ok"):
+                    await self._send_message(chat_id, result)
+                return
+
+            if cmd == "/org_profile":
+                raw = " ".join(args)
+                result = save_organization_profile(
+                    organization_name=_extract_labeled_value(raw, "name"),
+                    brand_colors=_extract_labeled_value(raw, "colors"),
+                    tone=_extract_labeled_value(raw, "tone"),
+                    logo_notes=_extract_labeled_value(raw, "logo"),
+                    recurring_hashtags=raw,
+                    preferred_sdgs=_extract_labeled_value(raw, "sdgs"),
+                )
+                data = load_payload(result)
+                name = data.get("organization_profile", {}).get("organization_name", "Organization")
+                await self._send_message(chat_id, f"{name} memory saved.")
+                return
+
+            if cmd == "/partner":
+                raw = " ".join(args)
+                result = save_partner_memory(
+                    partner_name=_extract_labeled_value(raw, "name") or raw,
+                    partner_type=_extract_labeled_value(raw, "type"),
+                    wording_notes=_extract_labeled_value(raw, "wording"),
+                    logo_usage=_extract_labeled_value(raw, "logo"),
+                )
+                data = load_payload(result)
+                await self._send_message(
+                    chat_id, f"Partner memory saved: {data.get('partner', {}).get('partner_name', '')}"
                 )
                 return
 

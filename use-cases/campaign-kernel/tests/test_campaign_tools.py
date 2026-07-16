@@ -15,11 +15,18 @@ from tool import (
     draft_flyer_content,
     edit_caption_pack,
     edit_flyer_content,
+    enrich_campaign_intelligence,
+    generate_campaign_impact_report,
     generate_caption_pack,
     generate_flyer,
+    generate_one_click_campaign_pack,
     get_event_context,
+    get_impact_dashboard,
     ingest_direct_campaign_assets,
     publish_campaign,
+    save_organization_profile,
+    save_partner_memory,
+    schedule_campaign,
     update_event_context,
 )
 
@@ -277,3 +284,110 @@ def test_caption_edit_prompt_rewrites_caption(monkeypatch, tmp_path):
     assert len(edited["caption_pack"]["instagram"]) < len(original["caption_pack"]["instagram"])
     assert edited["caption_pack"]["hashtags"] == []
     assert edited["caption_pack"]["style_used"]["direction"]["tone"] == "professional"
+
+
+def test_one_click_pack_generates_sdg_impact_and_report(monkeypatch, tmp_path):
+    monkeypatch.setenv("CAMPAIGN_KERNEL_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("CAMPAIGN_KERNEL_MOCK_PUBLISH", "true")
+
+    org = load_json(
+        save_organization_profile(
+            organization_name="IDEALIZE",
+            brand_colors="blue, white, teal",
+            tone="confident student innovation tone",
+            recurring_hashtags="#IDEALIZE #ClimateAction",
+            preferred_sdgs="4, 13",
+        )
+    )
+    assert org["organization_profile"]["preferred_sdgs"] == [4, 13]
+
+    partner = load_json(
+        save_partner_memory(
+            partner_name="Green Society",
+            partner_type="student partner",
+            wording_notes="Mention as community partner",
+            logo_usage="Footer logo lockup",
+        )
+    )
+    assert partner["partner"]["partner_name"] == "Green Society"
+
+    event = load_json(create_event_context("Sustainability AI Sprint", colors="green, blue, white"))
+    event_id = event["event_id"]
+    load_json(
+        update_event_context(
+            event_id,
+            theme_notes="modern sustainability campaign",
+            sample_caption="Build smarter climate action with us. Register today. #ClimateAction",
+            sample_flyer_notes="header logo area; bold title; footer partner strip; high contrast CTA",
+        )
+    )
+    draft = load_json(
+        draft_flyer_content(
+            event_id,
+            "AI for climate action workshop for university students on August 10 at Main Hall. "
+            "Register now to join recycling and cleanup project teams.",
+        )
+    )
+    campaign_id = draft["campaign"]["campaign_id"]
+
+    pack = load_json(
+        generate_one_click_campaign_pack(
+            event_id,
+            campaign_id,
+            design_instruction="premium SDG campaign with visible badge",
+            caption_direction="short and energetic",
+        )
+    )
+
+    assert pack["ok"] is True
+    assert Path(pack["flyer"]["path"]).exists()
+    assert pack["caption_pack"]["instagram"]
+    assert pack["intelligence"]["sdgs"]
+    assert "SDG 13: Climate Action" in pack["intelligence"]["sdg_badges"]
+    assert pack["intelligence"]["multilingual_captions"]["sinhala"]
+    assert pack["intelligence"]["multilingual_captions"]["tamil"]
+    assert pack["intelligence"]["quality"]["score"] >= 70
+    assert pack["intelligence"]["partner_memory"][0]["partner_name"] == "Green Society"
+
+    report = load_json(generate_campaign_impact_report(event_id, campaign_id))
+    assert Path(report["path"]).exists()
+    assert "Campaign Impact Report" in report["report"]
+    assert "SDG 13: Climate Action" in report["report"]
+
+    dashboard = load_json(get_impact_dashboard(event_id))
+    assert dashboard["dashboard"]["campaigns"] == 1
+    assert dashboard["dashboard"]["posts_prepared"] >= 4
+
+
+def test_intelligence_schedule_and_dashboard_without_publish(monkeypatch, tmp_path):
+    monkeypatch.setenv("CAMPAIGN_KERNEL_STATE_DIR", str(tmp_path / "state"))
+
+    event = load_json(create_event_context("Community Health Camp", colors="red, white"))
+    event_id = event["event_id"]
+    draft = load_json(
+        draft_flyer_content(
+            event_id,
+            "Free health awareness camp on September 2 at Community Center. Volunteer today.",
+        )
+    )
+    campaign_id = draft["campaign"]["campaign_id"]
+    intelligence = load_json(enrich_campaign_intelligence(event_id, campaign_id))
+
+    assert intelligence["ok"] is True
+    assert "SDG 3: Good Health and Well-being" in intelligence["intelligence"]["sdg_badges"]
+    assert intelligence["intelligence"]["optimized_ctas"]
+    assert intelligence["intelligence"]["accessibility"]["score"] > 0
+
+    scheduled = load_json(
+        schedule_campaign(
+            event_id,
+            campaign_id,
+            approval_due="2026-09-01 10:00",
+            publish_at="2026-09-01 18:00",
+            reminder_note="Final organizer approval",
+        )
+    )
+    assert scheduled["calendar_item"]["status"] == "scheduled"
+
+    dashboard = load_json(get_impact_dashboard())
+    assert dashboard["dashboard"]["calendar_items"] == 1
