@@ -8,59 +8,45 @@
   </head>
   <body>
     <main class="docs-layout">
-      <p><a href="/">Back to workspace</a></p>
-      <h1>CampaignKernel Documentation</h1>
-      <p>
-        CampaignKernel is an Agent Kernel powered campaign production system for student clubs, NGOs,
-        volunteer groups, and event teams. It works through Telegram and the web workspace using the same tools,
-        state, approvals, flyer renderer, SDG intelligence, and report generator.
-      </p>
-
-      <section class="docs-grid">
-        <article class="card">
-          <h4>Core Flow</h4>
-          <ol class="flow">
-            <li>Create an event context with brand, theme, colors, hashtags, and sample captions.</li>
-            <li>Upload sample flyers in Telegram or add sample flyer notes in the web workspace.</li>
-            <li>Send a short brief and review the structured content draft.</li>
-            <li>Generate the campaign pack: flyer, captions, SDGs, impact goals, variants, and quality score.</li>
-            <li>Approve, mock publish/export, and create the impact report.</li>
-          </ol>
-        </article>
-
-        <article class="card">
-          <h4>Agent Roles</h4>
-          <p>
-            Event context, flyer content, flyer design, caption, approval, publishing, strategy, and memory agents
-            coordinate through typed tools. The strategy agent handles SDG classification, impact goals, accessibility,
-            audience variants, platform variants, quality scoring, and judge reports.
-          </p>
-        </article>
-
-        <article class="card">
-          <h4>Free Production Mode</h4>
-          <p>
-            The default flyer mode is the deterministic template renderer, mock publish is enabled, and WhatsApp is an
-            export package. Live social publishing and AI image generation stay optional behind environment flags, so
-            the competition demo remains reliable without paid extras.
-          </p>
-        </article>
-
-        <article class="card">
-          <h4>VM Checklist</h4>
-          <p>
-            Set the OpenAI or Azure OpenAI variables, Telegram bot token, webhook secret, persistent state directory,
-            and mock publish flag. Run <code>uv run python ops/doctor.py</code>, start <code>uv run python server.py</code>,
-            expose port 8000, set the Telegram webhook, then confirm <code>/campaign/ready</code>.
-          </p>
-        </article>
+      <section class="docs-hero">
+        <p class="eyebrow">CampaignKernel docs</p>
+        <h1>Agent workflow, commands, and demo path.</h1>
+        <p>Use this as the judge script and VM handoff reference.</p>
+        <div class="hero-actions">
+          <a class="button-link" href="/">Open Workspace</a>
+          <a class="button-link ghost" href="/campaign/ready">Runtime</a>
+        </div>
       </section>
 
       <section class="docs-grid">
-        <article class="card">
-          <h4>Telegram Commands</h4>
+        <article class="docs-card">
+          <h4>Flow</h4>
+          <ol class="flow">
+            <li>Create event context.</li>
+            <li>Add sample caption and flyer pattern.</li>
+            <li>Generate one-click pack.</li>
+            <li>Review SDGs, score, and report.</li>
+            <li>Approve and mock publish.</li>
+          </ol>
+        </article>
+
+        <article class="docs-card">
+          <h4>Agents</h4>
+          <pre>Director
+Context
+Content
+Design
+Caption
+Strategy
+Approval
+Publisher
+Memory</pre>
+        </article>
+
+        <article class="docs-card">
+          <h4>Telegram</h4>
           <pre>/new_event IDEALIZE AI Workshop
-/context theme=modern tech colors=blue, white sample_caption=Ready to build with AI? #IDEALIZE
+/context theme=modern tech colors=blue, white
 /brief Free AI workshop on July 25 at UoM. Register via link in bio.
 /pack
 /impact
@@ -69,14 +55,13 @@
 /roles organizer=Sadeepa designer=Creative Team editor=Content Lead final_approver=President</pre>
         </article>
 
-        <article class="card">
-          <h4>Web API</h4>
+        <article class="docs-card">
+          <h4>API</h4>
           <pre>GET  /campaign/ready
 GET  /api/dashboard
 POST /api/quick-pack
-POST /api/campaigns/{event_id}/{campaign_id}/impact
-POST /api/campaigns/{event_id}/{campaign_id}/report
 POST /api/campaigns/{event_id}/{campaign_id}/roles
+POST /api/campaigns/{event_id}/{campaign_id}/report
 GET  /api/artifact?path=...</pre>
         </article>
       </section>

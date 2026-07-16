@@ -69,6 +69,30 @@ function card(title, body) {
   return el;
 }
 
+function linkCard(title, label, href) {
+  const el = document.createElement("article");
+  el.className = "card";
+  const heading = document.createElement("h4");
+  heading.textContent = title;
+  const link = document.createElement("a");
+  link.className = "button-link ghost";
+  link.href = href;
+  link.textContent = label;
+  link.target = "_blank";
+  el.append(heading, link);
+  return el;
+}
+
+function compactEntries(value, limit = 4) {
+  if (!value || typeof value !== "object") {
+    return "";
+  }
+  return Object.entries(value)
+    .slice(0, limit)
+    .map(([key, text]) => `${key}: ${text}`)
+    .join("\n");
+}
+
 function chip(label, tone = "") {
   const el = document.createElement("span");
   el.className = `chip ${tone}`.trim();
@@ -79,7 +103,7 @@ function chip(label, tone = "") {
 function renderFlyer(pack) {
   const frame = $("#flyerPreview");
   frame.innerHTML = "";
-  frame.className = "";
+  frame.className = "flyer-preview";
   if (pack?.flyer?.artifact_url) {
     const img = document.createElement("img");
     img.alt = "Generated campaign flyer";
@@ -87,7 +111,9 @@ function renderFlyer(pack) {
     frame.append(img);
   } else {
     frame.className = "empty-preview";
-    frame.textContent = "Generated flyer appears here.";
+    const label = document.createElement("span");
+    label.textContent = "Flyer preview";
+    frame.append(label);
   }
 }
 
@@ -107,7 +133,7 @@ function renderTab() {
   stack.innerHTML = "";
   const pack = state.pack;
   if (!pack) {
-    stack.append(card("Waiting for campaign", "Generate a pack to view captions, impact, variants, and report."));
+    stack.append(card("Output", "Generate a pack to view campaign assets."));
     return;
   }
   const captions = pack.caption_pack || {};
@@ -121,24 +147,34 @@ function renderTab() {
   if (state.activeTab === "impact") {
     const quality = intelligence.quality || {};
     const goals = (intelligence.impact_goals || [])
-      .map((goal) => `${goal.metric}: ${goal.target} (${goal.why})`)
+      .slice(0, 4)
+      .map((goal) => `${goal.metric}: ${goal.target}`)
       .join("\n");
     const compliance = intelligence.compliance?.issues?.join("\n") || intelligence.compliance?.status || "ok";
-    stack.append(card("Quality Score", `${quality.score || "N/A"} (${quality.grade || "N/A"})`));
+    const accessibility = intelligence.accessibility || {};
+    const checks = [
+      `Contrast ${accessibility.contrast_ratio || "N/A"}`,
+      accessibility.alt_text_present ? "Alt text ready" : "Alt text missing",
+      `Accessibility ${accessibility.score || 0}`,
+    ].join("\n");
+    stack.append(card("Quality", `${quality.score || "N/A"} (${quality.grade || "N/A"})`));
     stack.append(card("Impact Goals", goals));
-    stack.append(card("Accessibility", JSON.stringify(intelligence.accessibility || {}, null, 2)));
+    stack.append(card("Checks", checks));
     stack.append(card("Compliance", compliance));
   }
   if (state.activeTab === "variants") {
-    stack.append(card("Audience Variants", JSON.stringify(intelligence.audience_variants || {}, null, 2)));
-    stack.append(card("Platform Variants", JSON.stringify(intelligence.platform_variants || {}, null, 2)));
+    stack.append(card("Audience", compactEntries(intelligence.audience_variants)));
+    stack.append(card("Platform", compactEntries(intelligence.platform_variants)));
     stack.append(card("Optimized CTAs", (intelligence.optimized_ctas || []).join("\n")));
   }
   if (state.activeTab === "report") {
     const report = pack.impact_report || {};
-    const text = report.artifact_url ? `Markdown report: ${report.artifact_url}` : "Generate a report from Telegram or API.";
-    stack.append(card("Submission Report", text));
-    stack.append(card("Campaign IDs", `Event: ${pack.event_id}\nCampaign: ${pack.campaign_id}`));
+    if (report.artifact_url) {
+      stack.append(linkCard("Impact Report", "Open Markdown", report.artifact_url));
+    } else {
+      stack.append(card("Impact Report", "Not generated yet."));
+    }
+    stack.append(card("Campaign", `${pack.event_id}\n${pack.campaign_id}`));
   }
 }
 
