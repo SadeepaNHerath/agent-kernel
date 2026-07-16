@@ -7,7 +7,24 @@
     <link rel="stylesheet" href="/web/styles.css" />
   </head>
   <body>
-    <main class="docs-layout">
+    <div class="app-shell">
+      <header class="site-nav">
+        <a class="brand" href="/" aria-label="CampaignKernel home">
+          <span class="brand-mark">CK</span>
+          <span>CampaignKernel</span>
+        </a>
+        <nav class="nav-links" aria-label="Main">
+          <a href="/">Workspace</a>
+          <a href="/campaign/docs" class="active">Docs</a>
+        </nav>
+        <div class="runtime-pill">
+          <span class="status-dot ready"></span>
+          <span>Docs</span>
+        </div>
+      </header>
+    </div>
+
+    <main class="docs-layout with-nav">
       <section class="docs-hero">
         <p class="eyebrow">CampaignKernel docs</p>
         <h1>Agent workflow, commands, and demo path.</h1>

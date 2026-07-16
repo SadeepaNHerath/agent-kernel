@@ -626,6 +626,10 @@ summary {
   padding: 26px 0 44px;
 }
 
+.docs-layout.with-nav {
+  padding-top: 18px;
+}
+
 .docs-hero {
   display: grid;
   gap: 14px;
