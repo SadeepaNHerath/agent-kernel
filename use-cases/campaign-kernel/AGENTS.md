@@ -30,6 +30,7 @@ CampaignKernel uses Agent Kernel as the orchestration layer for an event campaig
 - `generate_caption_pack`
 - `edit_caption_pack`
 - `approve_caption_pack`
+- `assign_approval_roles`
 - `enrich_campaign_intelligence`
 - `generate_one_click_campaign_pack`
 - `generate_campaign_impact_report`
@@ -76,6 +77,7 @@ Each campaign stores:
 - accessibility and compliance review
 - quality score
 - generated impact report path
+- role-aware approval records
 
 Global memory stores:
 

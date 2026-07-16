@@ -215,6 +215,7 @@ Power commands for the upgraded demo:
 /impact
 /report
 /dashboard
+/roles organizer=Sadeepa designer=Creative Team editor=Content Lead final_approver=President
 /schedule approval_due=2026-07-24 18:00 publish_at=2026-07-25 09:00 note=Final organizer check
 /org_profile name=IDEALIZE colors=blue, white tone=confident student sdgs=4, 9 #IDEALIZE
 /partner name=Green Society type=student partner wording=community partner logo=footer lockup

@@ -16,6 +16,7 @@ Expected commands:
 - `/impact`
 - `/report`
 - `/dashboard`
+- `/roles`
 - `/status`
 - `/help`
 
@@ -86,6 +87,7 @@ Optional command version:
 
 ```text
 /pack premium SDG campaign, larger CTA
+/roles organizer=Sadeepa designer=Creative Team editor=Content Lead final_approver=President
 ```
 
 ## 7. Manual Approval Flow

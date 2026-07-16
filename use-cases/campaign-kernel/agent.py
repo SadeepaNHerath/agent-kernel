@@ -9,6 +9,7 @@ from tool import (
     approve_caption_pack,
     approve_flyer,
     approve_flyer_content,
+    assign_approval_roles,
     create_event_context,
     draft_flyer_content,
     edit_caption_pack,
@@ -42,6 +43,7 @@ CAMPAIGN_TOOLS = [
     generate_caption_pack,
     edit_caption_pack,
     approve_caption_pack,
+    assign_approval_roles,
     enrich_campaign_intelligence,
     generate_one_click_campaign_pack,
     generate_campaign_impact_report,
@@ -113,7 +115,14 @@ approval_agent = Agent(
         "approvals before publishing. If an approval is missing, explain the next required command."
     ),
     tools=OpenAIToolBuilder.bind(
-        [approve_flyer_content, approve_flyer, approve_caption_pack, approve_campaign_package, get_campaign_status]
+        [
+            assign_approval_roles,
+            approve_flyer_content,
+            approve_flyer,
+            approve_caption_pack,
+            approve_campaign_package,
+            get_campaign_status,
+        ]
     ),
 )
 

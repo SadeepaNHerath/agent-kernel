@@ -54,6 +54,7 @@ from tool import (
     approve_caption_pack,
     approve_flyer,
     approve_flyer_content,
+    assign_approval_roles,
     create_event_context,
     draft_flyer_content,
     edit_caption_pack,
@@ -98,6 +99,7 @@ TELEGRAM_COMMANDS = [
     {"command": "impact", "description": "Show SDG alignment, goals, and quality score"},
     {"command": "report", "description": "Create a judge-ready impact report"},
     {"command": "dashboard", "description": "Show impact dashboard"},
+    {"command": "roles", "description": "Assign organizer, designer, editor, approver"},
     {"command": "status", "description": "Show current event or campaign status"},
     {"command": "help", "description": "Show the simple workflow"},
 ]
@@ -174,6 +176,10 @@ def _extract_labeled_value(raw: str, label: str) -> str:
         "sdgs=",
         "type=",
         "wording=",
+        "organizer=",
+        "designer=",
+        "editor=",
+        "final_approver=",
         "approval_due=",
         "publish_at=",
         "note=",
@@ -565,6 +571,19 @@ class CampaignTelegramHandler(AgentTelegramRequestHandler):
                 approval_due=str(body.get("approval_due", "")),
                 publish_at=str(body.get("publish_at", "")),
                 reminder_note=str(body.get("reminder_note", "")),
+            )
+            return JSONResponse(load_payload(result))
+
+        @router.post("/api/campaigns/{event_id}/{campaign_id}/roles")
+        async def web_campaign_roles(event_id: str, campaign_id: str, request: Request):
+            body = await _request_json(request)
+            result = assign_approval_roles(
+                event_id,
+                campaign_id,
+                organizer=str(body.get("organizer", "")),
+                designer=str(body.get("designer", "")),
+                editor=str(body.get("editor", "")),
+                final_approver=str(body.get("final_approver", "")),
             )
             return JSONResponse(load_payload(result))
 
@@ -1111,6 +1130,36 @@ class CampaignTelegramHandler(AgentTelegramRequestHandler):
                 )
                 if not load_payload(result).get("ok"):
                     await self._send_message(chat_id, result)
+                return
+
+            if cmd == "/roles":
+                event_id, campaign_id, rest = _resolve_ids(chat_id, args)
+                raw = " ".join(rest)
+                result = assign_approval_roles(
+                    event_id,
+                    campaign_id,
+                    organizer=_extract_labeled_value(raw, "organizer"),
+                    designer=_extract_labeled_value(raw, "designer"),
+                    editor=_extract_labeled_value(raw, "editor"),
+                    final_approver=_extract_labeled_value(raw, "final_approver"),
+                )
+                data = load_payload(result)
+                if not data.get("ok"):
+                    await self._send_message(chat_id, "I could not save approval roles. " + result)
+                    return
+                roles = data.get("approval_workflow", {}).get("roles", {})
+                await self._send_message(
+                    chat_id,
+                    "\n".join(
+                        [
+                            "Approval roles saved.",
+                            f"Organizer: {roles.get('organizer') or 'not assigned'}",
+                            f"Designer: {roles.get('designer') or 'not assigned'}",
+                            f"Editor: {roles.get('editor') or 'not assigned'}",
+                            f"Final approver: {roles.get('final_approver') or 'not assigned'}",
+                        ]
+                    ),
+                )
                 return
 
             if cmd == "/org_profile":

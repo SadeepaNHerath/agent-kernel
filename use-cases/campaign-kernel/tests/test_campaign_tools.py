@@ -11,6 +11,7 @@ from tool import (
     approve_caption_pack,
     approve_flyer,
     approve_flyer_content,
+    assign_approval_roles,
     create_event_context,
     draft_flyer_content,
     edit_caption_pack,
@@ -329,6 +330,17 @@ def test_one_click_pack_generates_sdg_impact_and_report(monkeypatch, tmp_path):
         )
     )
     campaign_id = draft["campaign"]["campaign_id"]
+    roles = load_json(
+        assign_approval_roles(
+            event_id,
+            campaign_id,
+            organizer="Sadeepa",
+            designer="Creative Team",
+            editor="Content Lead",
+            final_approver="President",
+        )
+    )
+    assert roles["approval_workflow"]["roles"]["designer"] == "Creative Team"
 
     pack = load_json(
         generate_one_click_campaign_pack(
@@ -348,11 +360,14 @@ def test_one_click_pack_generates_sdg_impact_and_report(monkeypatch, tmp_path):
     assert pack["intelligence"]["multilingual_captions"]["tamil"]
     assert pack["intelligence"]["quality"]["score"] >= 70
     assert pack["intelligence"]["partner_memory"][0]["partner_name"] == "Green Society"
+    assert pack["intelligence"]["approval_workflow"]["records"]["content"]["approved_by"] == "Sadeepa"
+    assert pack["intelligence"]["approval_workflow"]["records"]["flyer"]["approved_by"] == "Creative Team"
 
     report = load_json(generate_campaign_impact_report(event_id, campaign_id))
     assert Path(report["path"]).exists()
     assert "Campaign Impact Report" in report["report"]
     assert "SDG 13: Climate Action" in report["report"]
+    assert "Creative Team" in report["report"]
 
     dashboard = load_json(get_impact_dashboard(event_id))
     assert dashboard["dashboard"]["campaigns"] == 1

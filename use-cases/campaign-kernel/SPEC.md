@@ -44,6 +44,7 @@ The primary interfaces are Telegram and a lightweight web workspace. A separate 
   - Markdown impact report
 - Support an impact dashboard and campaign calendar.
 - Support organization profile memory and partner memory.
+- Support role-aware approval workflow records for organizer, designer, editor, and final approver.
 - Support a designer/editor workflow where the user directly provides a final flyer and/or final caption, then asks CampaignKernel to validate, package, and publish/export it.
 - Use Agent Kernel tools for event context, campaign state, content generation, flyer rendering, captions, approval gates, and publisher adapters.
 - Use session or persistent state to remember event context and campaign history.

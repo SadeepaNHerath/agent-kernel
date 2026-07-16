@@ -141,6 +141,12 @@ SDG_DEFINITIONS = [
 
 AUDIENCE_SEGMENTS = ["students", "parents", "donors", "volunteers", "companies", "community"]
 PLATFORM_TARGETS = ["instagram", "facebook", "linkedin", "whatsapp", "email", "poster"]
+APPROVAL_ROLE_KEYS = {
+    "content": "organizer",
+    "flyer": "designer",
+    "caption": "editor",
+    "campaign": "final_approver",
+}
 
 
 def _now() -> str:
@@ -581,6 +587,42 @@ def _compliance_review(text: str, goals: list[dict[str, Any]]) -> dict[str, Any]
     return {"status": "attention" if issues else "ok", "issues": issues}
 
 
+def _approval_workflow() -> dict[str, Any]:
+    return {
+        "roles": {
+            "organizer": "",
+            "designer": "",
+            "editor": "",
+            "final_approver": "",
+        },
+        "records": {},
+    }
+
+
+def _ensure_approval_workflow(campaign: dict[str, Any]) -> dict[str, Any]:
+    workflow = campaign.setdefault("approval_workflow", _approval_workflow())
+    roles = workflow.setdefault("roles", {})
+    for role in _approval_workflow()["roles"]:
+        roles.setdefault(role, "")
+    workflow.setdefault("records", {})
+    return workflow
+
+
+def _record_approval(campaign: dict[str, Any], stage: str, approved_by: str = "") -> dict[str, Any]:
+    workflow = _ensure_approval_workflow(campaign)
+    role_key = APPROVAL_ROLE_KEYS.get(stage, stage)
+    role_name = role_key.replace("_", " ").title()
+    approver = approved_by.strip() or workflow.get("roles", {}).get(role_key, "").strip() or role_name
+    record = {
+        "stage": stage,
+        "role": role_key,
+        "approved_by": approver,
+        "approved_at": _now(),
+    }
+    workflow.setdefault("records", {})[stage] = record
+    return record
+
+
 def _designer_feedback(style: dict[str, Any]) -> list[str]:
     profile = style.get("style_profile", {}) if isinstance(style.get("style_profile"), dict) else {}
     feedback = []
@@ -625,6 +667,7 @@ def _build_campaign_intelligence(
         "quality": quality,
         "compliance": _compliance_review(_content_text(event, campaign), goals),
         "designer_feedback": _designer_feedback(style),
+        "approval_workflow": _ensure_approval_workflow(campaign),
         "organization_memory": org_profile if isinstance(org_profile, dict) else {},
         "partner_memory": partner_memory[:8] if isinstance(partner_memory, list) else [],
         "generated_at": _now(),
@@ -1119,6 +1162,7 @@ def draft_flyer_content(
             "caption": False,
             "campaign": False,
         },
+        "approval_workflow": _approval_workflow(),
         "flyer": {},
         "caption_pack": {},
         "publish_results": [],
@@ -1176,7 +1220,7 @@ def edit_flyer_content(event_id: str, campaign_id: str, edit_instruction: str) -
     return _json({"ok": True, "campaign": campaign, "applied_updates": updates})
 
 
-def approve_flyer_content(event_id: str, campaign_id: str) -> str:
+def approve_flyer_content(event_id: str, campaign_id: str, approved_by: str = "") -> str:
     """Approve flyer content after required fields and safety checks pass."""
     state = _load_state()
     event = _get_event(state, event_id)
@@ -1187,10 +1231,13 @@ def approve_flyer_content(event_id: str, campaign_id: str) -> str:
         return _json({"ok": False, "blocked": True, "missing_fields": missing, "unsafe_terms": unsafe_terms})
 
     campaign["approvals"]["content"] = True
+    record = _record_approval(campaign, "content", approved_by)
     campaign["status"] = "content_approved"
     campaign["latest_user_action"] = "content approved"
     campaign["updated_at"] = _now()
-    campaign.setdefault("revision_log", []).append({"stage": "content", "note": "Content approved.", "at": _now()})
+    campaign.setdefault("revision_log", []).append(
+        {"stage": "content", "note": f"Content approved by {record['approved_by']}.", "at": _now()}
+    )
     event["updated_at"] = _now()
     _save_state(state)
     return _json({"ok": True, "campaign": campaign})
@@ -1688,7 +1735,7 @@ def generate_flyer(event_id: str, campaign_id: str, design_instruction: str = ""
     return _json({"ok": True, "event_id": event_id, "campaign_id": campaign_id, "flyer": campaign["flyer"]})
 
 
-def approve_flyer(event_id: str, campaign_id: str) -> str:
+def approve_flyer(event_id: str, campaign_id: str, approved_by: str = "") -> str:
     """Approve the generated flyer."""
     state = _load_state()
     event = _get_event(state, event_id)
@@ -1696,10 +1743,13 @@ def approve_flyer(event_id: str, campaign_id: str) -> str:
     if not campaign.get("flyer", {}).get("path"):
         return _json({"ok": False, "blocked": True, "reason": "Generate a flyer before approving it."})
     campaign["approvals"]["flyer"] = True
+    record = _record_approval(campaign, "flyer", approved_by)
     campaign["status"] = "flyer_approved"
     campaign["latest_user_action"] = "flyer approved"
     campaign["updated_at"] = _now()
-    campaign.setdefault("revision_log", []).append({"stage": "flyer", "note": "Flyer approved.", "at": _now()})
+    campaign.setdefault("revision_log", []).append(
+        {"stage": "flyer", "note": f"Flyer approved by {record['approved_by']}.", "at": _now()}
+    )
     event["updated_at"] = _now()
     _save_state(state)
     return _json({"ok": True, "campaign": campaign})
@@ -1903,7 +1953,7 @@ def edit_caption_pack(event_id: str, campaign_id: str, edit_instruction: str) ->
     return _json({"ok": True, "caption_pack": campaign["caption_pack"]})
 
 
-def approve_caption_pack(event_id: str, campaign_id: str) -> str:
+def approve_caption_pack(event_id: str, campaign_id: str, approved_by: str = "") -> str:
     """Approve the caption pack."""
     state = _load_state()
     event = _get_event(state, event_id)
@@ -1911,10 +1961,13 @@ def approve_caption_pack(event_id: str, campaign_id: str) -> str:
     if not campaign.get("caption_pack"):
         return _json({"ok": False, "blocked": True, "reason": "Generate captions before approving them."})
     campaign["approvals"]["caption"] = True
+    record = _record_approval(campaign, "caption", approved_by)
     campaign["status"] = "caption_approved"
     campaign["latest_user_action"] = "caption approved"
     campaign["updated_at"] = _now()
-    campaign.setdefault("revision_log", []).append({"stage": "caption", "note": "Caption pack approved.", "at": _now()})
+    campaign.setdefault("revision_log", []).append(
+        {"stage": "caption", "note": f"Caption pack approved by {record['approved_by']}.", "at": _now()}
+    )
     event["updated_at"] = _now()
     _save_state(state)
     return _json({"ok": True, "campaign": campaign})
@@ -2012,6 +2065,11 @@ def generate_campaign_impact_report(event_id: str, campaign_id: str, report_form
     accessibility_issues = [
         f"- Issue: {issue}" for issue in intelligence.get("accessibility", {}).get("issues", [])
     ] or ["- No blocking accessibility issues found"]
+    workflow = _ensure_approval_workflow(campaign)
+    approval_lines = [
+        f"- {stage}: {record.get('approved_by')} as {record.get('role')} at {record.get('approved_at')}"
+        for stage, record in workflow.get("records", {}).items()
+    ] or ["- No approvals recorded yet"]
     report = "\n".join(
         [
             f"# Campaign Impact Report: {content.get('title', campaign_id)}",
@@ -2039,6 +2097,9 @@ def generate_campaign_impact_report(event_id: str, campaign_id: str, report_form
             "## Accessibility",
             f"- Score: {intelligence.get('accessibility', {}).get('score', 'N/A')}",
             *accessibility_issues,
+            "",
+            "## Approval Workflow",
+            *approval_lines,
         ]
     )
     output_dir = _output_dir() / event_id / campaign_id
@@ -2129,6 +2190,38 @@ def schedule_campaign(
     state.setdefault("calendar", []).append(item)
     _save_state(state)
     return _json({"ok": True, "calendar_item": item, "calendar": state["calendar"]})
+
+
+def assign_approval_roles(
+    event_id: str,
+    campaign_id: str,
+    organizer: str = "",
+    designer: str = "",
+    editor: str = "",
+    final_approver: str = "",
+) -> str:
+    """Assign organizer, designer, editor, and final approver names for the campaign workflow."""
+    state = _load_state()
+    event = _get_event(state, event_id)
+    campaign = _get_campaign(event, campaign_id)
+    workflow = _ensure_approval_workflow(campaign)
+    updates = {
+        "organizer": organizer.strip(),
+        "designer": designer.strip(),
+        "editor": editor.strip(),
+        "final_approver": final_approver.strip(),
+    }
+    for role, value in updates.items():
+        if value:
+            workflow["roles"][role] = value
+    campaign["latest_user_action"] = "approval roles assigned"
+    campaign["updated_at"] = _now()
+    campaign.setdefault("revision_log", []).append(
+        {"stage": "approval", "note": "Approval roles updated.", "at": _now()}
+    )
+    event["updated_at"] = _now()
+    _save_state(state)
+    return _json({"ok": True, "event_id": event_id, "campaign_id": campaign_id, "approval_workflow": workflow})
 
 
 def save_organization_profile(
@@ -2224,6 +2317,7 @@ def ingest_direct_campaign_assets(
             "caption": bool(caption_text),
             "campaign": False,
         },
+        "approval_workflow": _approval_workflow(),
         "flyer": {"path": flyer_path.strip(), "version": 1, "source": "designer"} if flyer_path else {},
         "caption_pack": (
             {
@@ -2241,6 +2335,11 @@ def ingest_direct_campaign_assets(
         "publish_results": [],
         "revision_log": [{"stage": "direct", "note": "Direct campaign package ingested.", "at": _now()}],
     }
+    _record_approval(campaign, "content", "Direct package")
+    if flyer_path:
+        _record_approval(campaign, "flyer", "Designer supplied")
+    if caption_text:
+        _record_approval(campaign, "caption", "Editor supplied")
     event.setdefault("campaigns", {})[campaign_id] = campaign
     event["updated_at"] = _now()
     _save_state(state)
@@ -2249,7 +2348,7 @@ def ingest_direct_campaign_assets(
     return _json({"ok": True, "event_id": event_id, "campaign": campaign})
 
 
-def approve_campaign_package(event_id: str, campaign_id: str) -> str:
+def approve_campaign_package(event_id: str, campaign_id: str, approved_by: str = "") -> str:
     """Approve the final flyer and caption package before publishing/export."""
     state = _load_state()
     event = _get_event(state, event_id)
@@ -2261,11 +2360,12 @@ def approve_campaign_package(event_id: str, campaign_id: str) -> str:
     if campaign.get("unsafe_terms"):
         return _json({"ok": False, "blocked": True, "unsafe_terms": campaign["unsafe_terms"]})
     approvals["campaign"] = True
+    record = _record_approval(campaign, "campaign", approved_by)
     campaign["status"] = "campaign_approved"
     campaign["latest_user_action"] = "campaign approved"
     campaign["updated_at"] = _now()
     campaign.setdefault("revision_log", []).append(
-        {"stage": "campaign", "note": "Final campaign approved.", "at": _now()}
+        {"stage": "campaign", "note": f"Final campaign approved by {record['approved_by']}.", "at": _now()}
     )
     event["updated_at"] = _now()
     _save_state(state)
